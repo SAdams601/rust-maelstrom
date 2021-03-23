@@ -1,31 +1,65 @@
 use json::{self};
-use std::{io, sync::mpsc::Receiver};
-use std::{io::prelude::*, sync::mpsc::channel};
+use lazy_static::lazy_static;
+use message_handler::{
+    broadcast_handler::BroadcastHandler, echo_handler::EchoHandler, init_handler::InitHandler,
+    read_handler::ReadHandler, topology_handler::TopologyHandler, MessageHandler,
+};
+use message_utils::get_message_type;
+use std::{collections::HashMap, io::prelude::*, sync::mpsc::sync_channel};
+use std::{
+    io::{self},
+    sync::mpsc::Receiver,
+};
 use std::{
     io::{stderr, Write},
     thread,
 };
-
+mod message_handler;
+mod message_utils;
 mod node;
 use crate::node::NodeState;
 
+lazy_static! {
+    static ref MESSAGE_HANDLERS: HashMap<String, Box<dyn MessageHandler>> = {
+        let mut map: HashMap<String, Box<dyn MessageHandler>> = HashMap::new();
+        map.insert("init".to_string(), Box::new(InitHandler {}));
+        map.insert("echo".to_string(), Box::new(EchoHandler {}));
+        map.insert("read".to_string(), Box::new(ReadHandler {}));
+        map.insert("topology".to_string(), Box::new(TopologyHandler {}));
+        map.insert("broadcast".to_string(), Box::new(BroadcastHandler {}));
+        map
+    };
+    static ref NODE_STATE: NodeState = {
+        let (reply_sender, reply_receiver) = sync_channel(1);
+        thread::spawn(|| while_receive(reply_receiver, write_reply));
+        NodeState::init(reply_sender)
+    };
+}
+
 fn main() {
-    let (log_sender, log_receiver) = channel();
-    thread::spawn(|| while_receive(log_receiver, write_log));
-
-    let (reply_sender, reply_receiver) = channel();
-    thread::spawn(|| while_receive(reply_receiver, write_reply));
-
-    let mut node = NodeState::init(log_sender, reply_sender);
     for result in io::stdin().lock().lines() {
         match result {
             Ok(line) => {
                 io::stderr().write(format!("Received {}\n", line).as_ref());
                 let parsed_res = json::parse(&line);
                 match parsed_res {
-                    Ok(parsed) => {
-                        node.respond(parsed);
-                    }
+                    Ok(parsed) => match NODE_STATE.check_for_callback(&parsed) {
+                        Some(sender) => {
+                            sender.send(parsed);
+                        }
+                        None => {
+                            let message_type: String = get_message_type(&parsed);
+                            if MESSAGE_HANDLERS.contains_key(&message_type) {
+                                let handler = MESSAGE_HANDLERS.get(&message_type).unwrap();
+                                thread::spawn(move || handler.handle_message(&parsed, &NODE_STATE));
+                            } else {
+                                write_log(&format!(
+                                    "Did not find handler for message: {:?}",
+                                    parsed
+                                ));
+                            }
+                        }
+                    },
                     Err(err) => {
                         std::process::exit(1);
                     }
@@ -46,12 +80,14 @@ fn while_receive<F: Fn(String)>(receiver: Receiver<String>, f: F) {
 
 fn write_reply(msg: String) {
     let mut stdout = io::stdout();
+    write_log(&msg);
     stdout.write_all(msg.as_bytes());
     stdout.write_all("\n".as_bytes());
     stdout.flush();
 }
 
-fn write_log(msg: String) {
+fn write_log(msg: &str) {
     stderr().write(msg.as_bytes());
+    stderr().write(b"\n");
     stderr().flush();
 }

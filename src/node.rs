@@ -1,161 +1,93 @@
-use json::{object, stringify, Array, JsonValue};
+use json::JsonValue;
 use std::{
-    borrow::Borrow,
     cell::RefCell,
-    collections::HashSet,
-    sync::{mpsc::Sender, Mutex},
+    collections::{HashMap, HashSet},
+    sync::{mpsc::SyncSender, Mutex, RwLock},
 };
 
+use crate::message_utils::get_in_reponse_to;
+
 pub struct NodeState {
-    node_id: RefCell<String>,
-    msg_id: RefCell<i32>,
-    other_nodes: Vec<String>,
-    neighbors: Vec<String>,
-    messages: Mutex<HashSet<i32>>,
-    logging_channel: Sender<String>,
-    reply_channel: Sender<String>,
+    node_id: RwLock<Option<String>>,
+    msg_id: Mutex<RefCell<i32>>,
+    neighbors: RwLock<Vec<String>>,
+    messages: RwLock<HashSet<i32>>,
+    callbacks: RwLock<HashMap<i32, SyncSender<JsonValue>>>,
+    response_channel: SyncSender<String>,
 }
 
 impl NodeState {
-    pub fn init(logging_channel: Sender<String>, reply_channel: Sender<String>) -> NodeState {
-        NodeState {
-            node_id: RefCell::new("".to_string()),
-            msg_id: RefCell::new(1),
-            other_nodes: Vec::new(),
-            neighbors: Vec::new(),
-            messages: Mutex::new(HashSet::new()),
-            logging_channel: logging_channel,
-            reply_channel: reply_channel,
+    pub fn init(response_channel: SyncSender<String>) -> NodeState {
+        let ns = NodeState {
+            node_id: RwLock::new(None),
+            msg_id: Mutex::new(RefCell::new(0)),
+            neighbors: RwLock::new(Vec::new()),
+            messages: RwLock::new(HashSet::new()),
+            callbacks: RwLock::new(HashMap::new()),
+            response_channel: response_channel,
+        };
+        ns
+    }
+
+    pub fn set_node_id(&self, my_id: String) {
+        let mut id = self.node_id.write().unwrap();
+        id.replace(my_id);
+    }
+
+    pub fn node_id(&self) -> String {
+        self.node_id.read().unwrap().as_ref().unwrap().clone()
+    }
+
+    pub fn read_messages(&self) -> Vec<i32> {
+        self.messages
+            .read()
+            .unwrap()
+            .iter()
+            .map(|i_ref| *i_ref)
+            .collect()
+    }
+
+    pub fn next_msg_id(&self) -> i32 {
+        let cell = self.msg_id.lock().unwrap();
+        cell.replace_with(|i| *i + 1)
+    }
+
+    pub fn replace_topology(&self, new_neighbors: Vec<String>) {
+        let mut vec = self.neighbors.write().unwrap();
+        new_neighbors.iter().for_each(|id| vec.push(id.clone()));
+    }
+
+    pub fn get_neighbors(&self) -> Vec<String> {
+        self.neighbors
+            .read()
+            .unwrap()
+            .iter()
+            .map(|n| n.clone())
+            .collect()
+    }
+
+    pub fn message_seen(&self, message: i32) -> bool {
+        self.messages.read().unwrap().contains(&message)
+    }
+
+    pub fn new_message(&self, message: i32) {
+        let mut messages = self.messages.write().unwrap();
+        messages.insert(message);
+    }
+
+    pub fn check_for_callback(&self, message: &JsonValue) -> Option<SyncSender<JsonValue>> {
+        let in_response_to = get_in_reponse_to(message);
+        match in_response_to {
+            Some(id) => self.callbacks.write().unwrap().remove(&id),
+            None => None,
         }
     }
 
-    //{"dest":"n1","body":{"type":"init","node_id":"n1","node_ids":["n1"],"msg_id":1},"src":"c0","id":0}
-
-    pub fn respond(&mut self, message: JsonValue) {
-        let body = &message["body"];
-        let msg_type = &body["type"];
-        let type_str = msg_type.as_str().unwrap();
-
-        let mut handler = self.get_message_handler(type_str);
-
-        handler(message);
+    pub fn add_callback(&self, message_id: i32, channel: SyncSender<JsonValue>) {
+        self.callbacks.write().unwrap().insert(message_id, channel);
     }
 
-    fn get_message_handler(&mut self, msg_type: &str) -> Box<dyn FnMut(JsonValue) + '_> {
-        match msg_type {
-            "init" => Box::new(move |jv: JsonValue| {
-                let body = jv["body"].borrow();
-                self.node_id
-                    .replace(body["node_id"].as_str().unwrap().to_string());
-                body["node_ids"].members().for_each(|member| {
-                    self.other_nodes.push(member.as_str().unwrap().to_string());
-                });
-                self.reply(jv, object! {type: "init_ok"});
-            }),
-            "topology" => Box::new(move |jv| {
-                jv["body"]["topology"][self.my_id()]
-                    .members()
-                    .for_each(|neighbor| {
-                        self.neighbors.push(neighbor.to_string());
-                    });
-                self.logging_channel
-                    .send(format!("My neighbors are: <{:?}>\n", self.neighbors));
-                self.reply(jv, object! {type: "topology_ok"});
-            }),
-            "read" => Box::new(move |jv: JsonValue| {
-                let mtx = self.messages.lock();
-                let arr: Vec<JsonValue> = match mtx {
-                    Ok(guard) => guard.iter().map(|s| JsonValue::from(s.clone())).collect(),
-                    Err(poison_set) => {
-                        self.logging_channel
-                            .send(format!("Mutex has been poisoned, error: {:?}", poison_set));
-                        poison_set
-                            .into_inner()
-                            .iter()
-                            .map(|s| JsonValue::from(s.clone()))
-                            .collect()
-                    }
-                };
-                let response = object! {type: "read_ok", messages: arr };
-                self.reply(jv, response);
-            }),
-            "broadcast" => Box::new(move |jv: JsonValue| {
-                let message = jv["body"]["message"].as_i32().unwrap();
-                if !self.message_seen(message) {
-                    let mtx = self.messages.lock();
-                    match mtx {
-                        Ok(mut guard) => {
-                            let set: &mut HashSet<i32> = &mut guard;
-                            set.insert(message);
-                        }
-                        Err(poisoned) => {
-                            self.logging_channel
-                                .send(format!("Mutex has been poisoned, error: {:?}", poisoned));
-                            let set: &mut HashSet<i32> = &mut poisoned.into_inner();
-                            set.insert(message);
-                        }
-                    }
-                    self.neighbors.iter().for_each(|node| {
-                        self.send(
-                            node.clone(),
-                            object!(message: message.clone(), type: "broadcast"),
-                        )
-                    });
-                }
-                if !jv["body"]["msg_id"].is_null() {
-                    self.reply(jv, object!(type: "broadcast_ok"));
-                }
-            }),
-            "echo" => Box::new(move |jv: JsonValue| {
-                let echo = jv["body"]["echo"].as_str().unwrap().to_string();
-                self.reply(jv, object! {type: "echo_ok", echo: echo});
-            }),
-            _ => Box::new(move |jv: JsonValue| {
-                self.logging_channel.send(format!(
-                    "Received message with unknown type message: \n<{}>\n",
-                    jv
-                ));
-            }),
-        }
-    }
-
-    fn message_seen(&self, message: i32) -> bool {
-        self.messages.lock().unwrap().contains(&message)
-    }
-
-    fn get_message_id(&self) -> i32 {
-        let this_msg_id = self.msg_id.take() + 1;
-        self.msg_id.replace(this_msg_id);
-        return this_msg_id;
-    }
-
-    fn my_id(&self) -> String {
-        let id = self.node_id.borrow();
-        return id.to_string();
-    }
-
-    fn send(&self, neighbor: String, body: JsonValue) {
-        let response = object! {
-            src: self.my_id(),
-            dest: JsonValue::from(neighbor),
-            body: body
-        };
-        self.reply_channel.send(stringify(response));
-    }
-
-    fn reply(&self, req_message: JsonValue, mut response_body: JsonValue) {
-        let message_id = self.get_message_id();
-        let replying_to = req_message["body"]["msg_id"].clone();
-        response_body["in_reply_to"] = replying_to;
-        response_body["msg_id"] = JsonValue::from(message_id);
-        let response = object! {
-            dest: req_message["src"].as_str().unwrap(),
-            src: self.my_id(),
-            body: response_body
-        };
-        let string = stringify(response);
-        self.logging_channel
-            .send(format!("Replying with {}\n", string));
-        self.reply_channel.send(string);
+    pub fn get_channel(&self) -> SyncSender<String> {
+        self.response_channel.clone()
     }
 }
