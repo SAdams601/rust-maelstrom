@@ -1,10 +1,12 @@
 use json::{self};
 use lazy_static::lazy_static;
 use message_handler::{
-    broadcast_handler::BroadcastHandler, echo_handler::EchoHandler, init_handler::InitHandler,
-    read_handler::ReadHandler, topology_handler::TopologyHandler, MessageHandler,
+    add_handler::AddHandler, broadcast_handler::BroadcastHandler, echo_handler::EchoHandler,
+    init_handler::InitHandler, read_handler::ReadHandler, replicate_handler::ReplicateHandler,
+    topology_handler::TopologyHandler, MessageHandler,
 };
 use message_utils::get_message_type;
+use replicator::send_values;
 use std::{collections::HashMap, io::prelude::*, sync::mpsc::sync_channel};
 use std::{
     io::{self},
@@ -17,6 +19,8 @@ use std::{
 mod message_handler;
 mod message_utils;
 mod node;
+mod replicator;
+mod g_counter;
 use crate::node::NodeState;
 
 lazy_static! {
@@ -27,6 +31,8 @@ lazy_static! {
         map.insert("read".to_string(), Box::new(ReadHandler {}));
         map.insert("topology".to_string(), Box::new(TopologyHandler {}));
         map.insert("broadcast".to_string(), Box::new(BroadcastHandler {}));
+        map.insert("add".to_string(), Box::new(AddHandler {}));
+        map.insert("replicate".to_string(), Box::new(ReplicateHandler {}));
         map
     };
     static ref NODE_STATE: NodeState = {
@@ -37,6 +43,7 @@ lazy_static! {
 }
 
 fn main() {
+    send_values(&NODE_STATE);
     for result in io::stdin().lock().lines() {
         match result {
             Ok(line) => {

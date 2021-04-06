@@ -14,6 +14,12 @@ impl MessageHandler for InitHandler {
     ) -> json::JsonValue {
         let body = get_body(message);
         curr_state.set_node_id(body["node_id"].to_string());
+        curr_state.set_other_node_ids(
+            body["node_ids"]
+                .members()
+                .map(|jv| jv.as_str().unwrap())
+                .collect(),
+        );
         object! {type: "init_ok"}
     }
 }

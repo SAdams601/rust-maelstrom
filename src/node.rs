@@ -5,14 +5,16 @@ use std::{
     sync::{mpsc::SyncSender, Mutex, RwLock},
 };
 
-use crate::message_utils::get_in_reponse_to;
+use crate::{g_counter::GCounter, message_utils::get_in_reponse_to};
 
 pub struct NodeState {
     node_id: RwLock<Option<String>>,
+    other_ids: RwLock<Vec<String>>,
     msg_id: Mutex<RefCell<i32>>,
     neighbors: RwLock<Vec<String>>,
     messages: RwLock<HashSet<i32>>,
     callbacks: RwLock<HashMap<i32, SyncSender<JsonValue>>>,
+    counters: RwLock<GCounter>,
     response_channel: SyncSender<String>,
 }
 
@@ -20,10 +22,12 @@ impl NodeState {
     pub fn init(response_channel: SyncSender<String>) -> NodeState {
         let ns = NodeState {
             node_id: RwLock::new(None),
+            other_ids: RwLock::new(Vec::new()),
             msg_id: Mutex::new(RefCell::new(0)),
             neighbors: RwLock::new(Vec::new()),
             messages: RwLock::new(HashSet::new()),
             callbacks: RwLock::new(HashMap::new()),
+            counters: RwLock::new(GCounter::init()),
             response_channel: response_channel,
         };
         ns
@@ -34,17 +38,31 @@ impl NodeState {
         id.replace(my_id);
     }
 
+    pub fn set_other_node_ids(&self, other_ids: Vec<&str>) {
+        let mut ids = self.other_ids.write().unwrap();
+        let my_id: String = self.node_id.read().unwrap().as_ref().unwrap().to_string();
+        other_ids.iter().for_each(|id_ref| {
+            let id: String = id_ref.to_string();
+            if my_id != id {
+                ids.push(id);
+            }
+        });
+    }
+
+    pub fn other_nodes(&self) -> Vec<String> {
+        self.other_ids.read().unwrap().clone()
+    }
+
     pub fn node_id(&self) -> String {
         self.node_id.read().unwrap().as_ref().unwrap().clone()
     }
 
-    pub fn read_messages(&self) -> Vec<i32> {
-        self.messages
-            .read()
-            .unwrap()
-            .iter()
-            .map(|i_ref| *i_ref)
-            .collect()
+    pub fn read_counters(&self) -> i32 {
+        self.counters.read().unwrap().read()
+    }
+
+    pub fn counters_state(&self) -> JsonValue {
+        self.counters.read().unwrap().to_json()
     }
 
     pub fn next_msg_id(&self) -> i32 {
@@ -71,8 +89,13 @@ impl NodeState {
     }
 
     pub fn new_message(&self, message: i32) {
-        let mut messages = self.messages.write().unwrap();
-        messages.insert(message);
+        let mut counters = self.counters.write().unwrap();
+        counters.add(self.node_id(), message);
+    }
+
+    pub fn merge_messages(&self, received_values: GCounter) {
+        let mut counters = self.counters.write().unwrap();
+        counters.merge(received_values);
     }
 
     pub fn check_for_callback(&self, message: &JsonValue) -> Option<SyncSender<JsonValue>> {
