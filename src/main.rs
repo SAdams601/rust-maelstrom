@@ -16,11 +16,11 @@ use std::{
     io::{stderr, Write},
     thread,
 };
+mod counters;
 mod message_handler;
 mod message_utils;
 mod node;
 mod replicator;
-mod g_counter;
 use crate::node::NodeState;
 
 lazy_static! {

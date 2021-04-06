@@ -2,7 +2,10 @@ use std::collections::HashSet;
 
 use json::JsonValue;
 
-use crate::{g_counter::GCounter, node::NodeState};
+use crate::{
+    counters::{g_counter::GCounter, pn_counter::PnCounter},
+    node::NodeState,
+};
 
 use super::MessageHandler;
 
@@ -14,7 +17,7 @@ impl MessageHandler for ReplicateHandler {
     }
 
     fn get_response_body(&self, message: &JsonValue, curr_state: &NodeState) -> Option<JsonValue> {
-        let counters = GCounter::from_json(&message["body"]["value"]);
+        let counters = PnCounter::from_json(&message["body"]["value"]);
         curr_state.merge_messages(counters);
         None
     }

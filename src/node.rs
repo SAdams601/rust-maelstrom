@@ -5,7 +5,10 @@ use std::{
     sync::{mpsc::SyncSender, Mutex, RwLock},
 };
 
-use crate::{g_counter::GCounter, message_utils::get_in_reponse_to};
+use crate::{
+    counters::{g_counter::GCounter, pn_counter::PnCounter},
+    message_utils::get_in_reponse_to,
+};
 
 pub struct NodeState {
     node_id: RwLock<Option<String>>,
@@ -14,7 +17,7 @@ pub struct NodeState {
     neighbors: RwLock<Vec<String>>,
     messages: RwLock<HashSet<i32>>,
     callbacks: RwLock<HashMap<i32, SyncSender<JsonValue>>>,
-    counters: RwLock<GCounter>,
+    counters: RwLock<PnCounter>,
     response_channel: SyncSender<String>,
 }
 
@@ -27,7 +30,7 @@ impl NodeState {
             neighbors: RwLock::new(Vec::new()),
             messages: RwLock::new(HashSet::new()),
             callbacks: RwLock::new(HashMap::new()),
-            counters: RwLock::new(GCounter::init()),
+            counters: RwLock::new(PnCounter::init()),
             response_channel: response_channel,
         };
         ns
@@ -93,7 +96,7 @@ impl NodeState {
         counters.add(self.node_id(), message);
     }
 
-    pub fn merge_messages(&self, received_values: GCounter) {
+    pub fn merge_messages(&self, received_values: PnCounter) {
         let mut counters = self.counters.write().unwrap();
         counters.merge(received_values);
     }
