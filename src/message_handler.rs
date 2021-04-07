@@ -1,5 +1,4 @@
 pub mod add_handler;
-pub mod broadcast_handler;
 pub mod echo_handler;
 pub mod init_handler;
 pub mod read_handler;

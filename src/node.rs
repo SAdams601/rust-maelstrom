@@ -5,17 +5,13 @@ use std::{
     sync::{mpsc::SyncSender, Mutex, RwLock},
 };
 
-use crate::{
-    counters::{g_counter::GCounter, pn_counter::PnCounter},
-    message_utils::get_in_reponse_to,
-};
+use crate::{counters::pn_counter::PnCounter, message_utils::get_in_reponse_to};
 
 pub struct NodeState {
     node_id: RwLock<Option<String>>,
     other_ids: RwLock<Vec<String>>,
     msg_id: Mutex<RefCell<i32>>,
     neighbors: RwLock<Vec<String>>,
-    messages: RwLock<HashSet<i32>>,
     callbacks: RwLock<HashMap<i32, SyncSender<JsonValue>>>,
     counters: RwLock<PnCounter>,
     response_channel: SyncSender<String>,
@@ -28,7 +24,6 @@ impl NodeState {
             other_ids: RwLock::new(Vec::new()),
             msg_id: Mutex::new(RefCell::new(0)),
             neighbors: RwLock::new(Vec::new()),
-            messages: RwLock::new(HashSet::new()),
             callbacks: RwLock::new(HashMap::new()),
             counters: RwLock::new(PnCounter::init()),
             response_channel: response_channel,
@@ -85,10 +80,6 @@ impl NodeState {
             .iter()
             .map(|n| n.clone())
             .collect()
-    }
-
-    pub fn message_seen(&self, message: i32) -> bool {
-        self.messages.read().unwrap().contains(&message)
     }
 
     pub fn new_message(&self, message: i32) {

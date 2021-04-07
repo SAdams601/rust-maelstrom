@@ -1,8 +1,8 @@
 use json::{self};
 use lazy_static::lazy_static;
 use message_handler::{
-    add_handler::AddHandler, broadcast_handler::BroadcastHandler, echo_handler::EchoHandler,
-    init_handler::InitHandler, read_handler::ReadHandler, replicate_handler::ReplicateHandler,
+    add_handler::AddHandler, echo_handler::EchoHandler, init_handler::InitHandler,
+    read_handler::ReadHandler, replicate_handler::ReplicateHandler,
     topology_handler::TopologyHandler, MessageHandler,
 };
 use message_utils::get_message_type;
@@ -30,7 +30,6 @@ lazy_static! {
         map.insert("echo".to_string(), Box::new(EchoHandler {}));
         map.insert("read".to_string(), Box::new(ReadHandler {}));
         map.insert("topology".to_string(), Box::new(TopologyHandler {}));
-        map.insert("broadcast".to_string(), Box::new(BroadcastHandler {}));
         map.insert("add".to_string(), Box::new(AddHandler {}));
         map.insert("replicate".to_string(), Box::new(ReplicateHandler {}));
         map
