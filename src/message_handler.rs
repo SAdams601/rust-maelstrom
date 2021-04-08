@@ -7,7 +7,7 @@ pub mod topology_handler;
 
 use json::{object, stringify, JsonValue};
 
-use crate::node::NodeState;
+use crate::states::node_state::NodeState;
 
 pub trait MessageHandler: Sync {
     fn make_response_body(&self, message: &JsonValue, curr_state: &NodeState) -> JsonValue;

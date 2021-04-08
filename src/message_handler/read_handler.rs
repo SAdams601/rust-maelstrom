@@ -1,7 +1,8 @@
 use json::{object, JsonValue};
 
+use crate::states::node_state::NodeState;
+
 use super::MessageHandler;
-use crate::node::NodeState;
 
 pub struct ReadHandler {}
 

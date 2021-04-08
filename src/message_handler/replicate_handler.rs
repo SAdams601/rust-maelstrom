@@ -1,11 +1,6 @@
-use std::collections::HashSet;
-
 use json::JsonValue;
 
-use crate::{
-    counters::{g_counter::GCounter, pn_counter::PnCounter},
-    node::NodeState,
-};
+use crate::{counters::pn_counter::PnCounter, states::node_state::NodeState};
 
 use super::MessageHandler;
 

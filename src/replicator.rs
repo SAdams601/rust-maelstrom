@@ -2,7 +2,7 @@ use std::{thread, time::Duration};
 
 use json::{object, stringify, JsonValue};
 
-use crate::node::NodeState;
+use crate::states::node_state::NodeState;
 
 pub fn send_values(state: &'static NodeState) {
     thread::spawn(move || loop {

@@ -1,6 +1,6 @@
 use json::object;
 
-use crate::message_utils::get_body;
+use crate::{message_utils::get_body, states::node_state::NodeState};
 
 use super::MessageHandler;
 
@@ -10,7 +10,7 @@ impl MessageHandler for InitHandler {
     fn make_response_body(
         &self,
         message: &json::JsonValue,
-        curr_state: &crate::node::NodeState,
+        curr_state: &NodeState,
     ) -> json::JsonValue {
         let body = get_body(message);
         curr_state.set_node_id(body["node_id"].to_string());

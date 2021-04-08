@@ -1,6 +1,6 @@
 use json::{object, JsonValue};
 
-use crate::node::NodeState;
+use crate::states::node_state::NodeState;
 
 use super::MessageHandler;
 

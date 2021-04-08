@@ -7,6 +7,7 @@ use message_handler::{
 };
 use message_utils::get_message_type;
 use replicator::send_values;
+use states::node_state::NodeState;
 use std::{collections::HashMap, io::prelude::*, sync::mpsc::sync_channel};
 use std::{
     io::{self},
@@ -19,9 +20,8 @@ use std::{
 mod counters;
 mod message_handler;
 mod message_utils;
-mod node;
 mod replicator;
-use crate::node::NodeState;
+mod states;
 
 lazy_static! {
     static ref MESSAGE_HANDLERS: HashMap<String, Box<dyn MessageHandler>> = {
