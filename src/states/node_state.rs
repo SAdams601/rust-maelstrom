@@ -1,11 +1,13 @@
 use json::JsonValue;
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
-    sync::{mpsc::SyncSender, Mutex, RwLock},
+    collections::HashMap,
+    sync::{mpsc::SyncSender, Mutex, MutexGuard, RwLock},
 };
 
 use crate::{counters::pn_counter::PnCounter, message_utils::get_in_reponse_to};
+
+use super::datomic_state::DatomicState;
 
 pub struct NodeState {
     node_id: RwLock<Option<String>>,
@@ -15,6 +17,7 @@ pub struct NodeState {
     callbacks: RwLock<HashMap<i32, SyncSender<JsonValue>>>,
     counters: RwLock<PnCounter>,
     response_channel: SyncSender<String>,
+    datomic_state: Mutex<DatomicState>,
 }
 
 impl NodeState {
@@ -27,6 +30,7 @@ impl NodeState {
             callbacks: RwLock::new(HashMap::new()),
             counters: RwLock::new(PnCounter::init()),
             response_channel: response_channel,
+            datomic_state: Mutex::new(DatomicState::init()),
         };
         ns
     }
@@ -100,11 +104,11 @@ impl NodeState {
         }
     }
 
-    pub fn add_callback(&self, message_id: i32, channel: SyncSender<JsonValue>) {
-        self.callbacks.write().unwrap().insert(message_id, channel);
-    }
-
     pub fn get_channel(&self) -> SyncSender<String> {
         self.response_channel.clone()
+    }
+
+    pub fn borrow_datomic(&self) -> MutexGuard<DatomicState> {
+        self.datomic_state.lock().unwrap()
     }
 }

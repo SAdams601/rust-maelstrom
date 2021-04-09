@@ -3,7 +3,7 @@ use lazy_static::lazy_static;
 use message_handler::{
     add_handler::AddHandler, echo_handler::EchoHandler, init_handler::InitHandler,
     read_handler::ReadHandler, replicate_handler::ReplicateHandler,
-    topology_handler::TopologyHandler, MessageHandler,
+    topology_handler::TopologyHandler, txn_handler::TxnHandler, MessageHandler,
 };
 use message_utils::get_message_type;
 use replicator::send_values;
@@ -32,6 +32,7 @@ lazy_static! {
         map.insert("topology".to_string(), Box::new(TopologyHandler {}));
         map.insert("add".to_string(), Box::new(AddHandler {}));
         map.insert("replicate".to_string(), Box::new(ReplicateHandler {}));
+        map.insert("txn".to_string(), Box::new(TxnHandler {}));
         map
     };
     static ref NODE_STATE: NodeState = {
