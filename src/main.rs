@@ -1,5 +1,6 @@
 use json::{self};
 use lazy_static::lazy_static;
+use lin_kv_service::LinKvService;
 use message_handler::{
     add_handler::AddHandler, echo_handler::EchoHandler, init_handler::InitHandler,
     read_handler::ReadHandler, replicate_handler::ReplicateHandler,
@@ -18,6 +19,7 @@ use std::{
     thread,
 };
 mod counters;
+mod lin_kv_service;
 mod message_handler;
 mod message_utils;
 mod replicator;
@@ -32,7 +34,10 @@ lazy_static! {
         map.insert("topology".to_string(), Box::new(TopologyHandler {}));
         map.insert("add".to_string(), Box::new(AddHandler {}));
         map.insert("replicate".to_string(), Box::new(ReplicateHandler {}));
-        map.insert("txn".to_string(), Box::new(TxnHandler {}));
+        map.insert(
+            "txn".to_string(),
+            Box::new(TxnHandler::init(&LIN_KV_SERVICE)),
+        );
         map
     };
     static ref NODE_STATE: NodeState = {
@@ -40,6 +45,7 @@ lazy_static! {
         thread::spawn(|| while_receive(reply_receiver, write_reply));
         NodeState::init(reply_sender)
     };
+    static ref LIN_KV_SERVICE: LinKvService = LinKvService::init(&NODE_STATE);
 }
 
 fn main() {
@@ -87,7 +93,7 @@ fn while_receive<F: Fn(String)>(receiver: Receiver<String>, f: F) {
 
 fn write_reply(msg: String) {
     let mut stdout = io::stdout();
-    write_log(&msg);
+    write_log(&format!("Replying: {}", msg));
     stdout.write_all(msg.as_bytes());
     stdout.write_all("\n".as_bytes());
     stdout.flush();

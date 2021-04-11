@@ -77,15 +77,6 @@ impl NodeState {
         new_neighbors.iter().for_each(|id| vec.push(id.clone()));
     }
 
-    pub fn get_neighbors(&self) -> Vec<String> {
-        self.neighbors
-            .read()
-            .unwrap()
-            .iter()
-            .map(|n| n.clone())
-            .collect()
-    }
-
     pub fn new_message(&self, message: i32) {
         let mut counters = self.counters.write().unwrap();
         counters.add(self.node_id(), message);
@@ -102,6 +93,10 @@ impl NodeState {
             Some(id) => self.callbacks.write().unwrap().remove(&id),
             None => None,
         }
+    }
+
+    pub fn add_callback(&self, message_id: i32, channel: SyncSender<JsonValue>) {
+        self.callbacks.write().unwrap().insert(message_id, channel);
     }
 
     pub fn get_channel(&self) -> SyncSender<String> {
