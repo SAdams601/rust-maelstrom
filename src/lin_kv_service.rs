@@ -1,6 +1,8 @@
 use crate::{
     error::DefiniteError,
-    states::{node_state::NodeState, serializable_map::SerializableMap, thunk::Thunk},
+    states::{
+        kv_thunk::KVValue, node_state::NodeState, serializable_map::SerializableMap, thunk::Thunk,
+    },
 };
 use json::{object, stringify, JsonValue};
 use std::{
@@ -41,19 +43,18 @@ impl LinKvService {
         Ok(())
     }
 
-    pub fn read_thunk_list(&self, thunk_id: &str) -> Vec<i32> {
-        let response_body = &self.send_rpc(object! {type: "read", key: thunk_id})["body"];
+    pub fn read_thunk_value<T: KVValue>(&self, thunk: &Thunk<T>) -> T {
+        let response_body = &self.send_rpc(object! {type: "read", key: thunk.id.clone()})["body"];
         if response_body["type"] == "error" {
-            return Vec::new();
+            return T::default();
         }
-        response_body["value"]
-            .members()
-            .map(|jv| jv.as_i32().unwrap())
-            .collect()
+        T::from_json(&response_body["value"])
     }
 
-    pub fn save_thunk(&self, thunk: &Thunk) -> JsonValue {
-        self.send_rpc(object! {type: "write", key: thunk.id.clone(), value: thunk.value(self)})
+    pub fn save_thunk<T: KVValue>(&self, thunk: &Thunk<T>) -> JsonValue {
+        self.send_rpc(
+            object! {type: "write", key: thunk.id.clone(), value: thunk.value(self).to_json()},
+        )
     }
 
     pub fn new_id(&self) -> String {
@@ -61,7 +62,7 @@ impl LinKvService {
     }
 
     fn init_root(&self) -> SerializableMap {
-        let map = SerializableMap::init(self);
+        let map = SerializableMap::init();
         self.send_rpc(object! {type: "write", key: "root", value: map.to_json()});
         map
     }

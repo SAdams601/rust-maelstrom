@@ -9,7 +9,6 @@ pub mod txn_handler;
 use crate::error::MaelstromError;
 use crate::states::node_state::NodeState;
 use json::{object, stringify, JsonValue};
-use std::io::{stderr, Write};
 
 pub trait MessageHandler: Sync {
     fn make_response_body(

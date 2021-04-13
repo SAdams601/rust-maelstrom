@@ -7,12 +7,12 @@ use crate::{error::DefiniteError, lin_kv_service::LinKvService};
 use super::thunk::Thunk;
 
 pub struct SerializableMap {
-    map: HashMap<i32, Thunk>,
-    changes: HashMap<i32, Thunk>,
+    map: HashMap<i32, Thunk<Vec<i32>>>,
+    changes: HashMap<i32, Thunk<Vec<i32>>>,
 }
 
 impl SerializableMap {
-    pub fn init(service: &LinKvService) -> SerializableMap {
+    pub fn init() -> SerializableMap {
         SerializableMap {
             map: HashMap::new(),
             changes: HashMap::new(),

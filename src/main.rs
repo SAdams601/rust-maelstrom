@@ -23,7 +23,6 @@ mod error;
 mod lin_kv_service;
 mod message_handler;
 mod message_utils;
-mod replicator;
 mod states;
 
 lazy_static! {

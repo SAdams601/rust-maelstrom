@@ -1,18 +1,17 @@
-use std::{
-    io::{stderr, Write},
-    sync::RwLock,
-};
+use std::sync::RwLock;
 
 use crate::{error::DefiniteError, lin_kv_service::LinKvService};
 
-pub struct Thunk {
+use super::kv_thunk::KVValue;
+
+pub struct Thunk<T: KVValue> {
     pub id: String,
-    value: RwLock<Option<Vec<i32>>>,
+    value: RwLock<Option<T>>,
     pub saved: RwLock<bool>,
 }
 
-impl Thunk {
-    pub fn init(id: String, v: Option<Vec<i32>>, saved: bool) -> Thunk {
+impl<T: KVValue> Thunk<T> {
+    pub fn init(id: String, v: Option<T>, saved: bool) -> Thunk<T> {
         Thunk {
             id: id,
             value: RwLock::new(v),
@@ -20,16 +19,16 @@ impl Thunk {
         }
     }
 
-    pub fn value(&self, service: &LinKvService) -> Vec<i32> {
+    pub fn value(&self, service: &LinKvService) -> T {
         let m_val = self.value.read().unwrap();
         if m_val.is_some() {
             return m_val.as_ref().unwrap().clone();
         }
         drop(m_val);
-        let vec = service.read_thunk_list(&self.id);
+        let val = service.read_thunk_value(&self);
         let mut thunk_val = self.value.write().unwrap();
-        *thunk_val = Some(vec.clone());
-        vec
+        *thunk_val = Some(val.clone());
+        val
     }
 
     pub fn save(&self, service: &LinKvService) -> Result<(), DefiniteError> {
@@ -43,8 +42,8 @@ impl Thunk {
                 self.id
             )));
         }
-        let mut svd = self.saved.write().unwrap();
-        *svd = true;
+        let mut saved = self.saved.write().unwrap();
+        *saved = true;
         Ok(())
     }
 }
