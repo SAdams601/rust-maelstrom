@@ -1,4 +1,7 @@
-use crate::states::{node_state::NodeState, serializable_map::SerializableMap};
+use crate::{
+    error::DefiniteError,
+    states::{node_state::NodeState, serializable_map::SerializableMap, thunk::Thunk},
+};
 use json::{object, stringify, JsonValue};
 use std::{
     io::{stderr, Write},
@@ -24,22 +27,41 @@ impl LinKvService {
         SerializableMap::from_json(&response_body["value"])
     }
 
-    pub fn cas_root(&self, map: SerializableMap) -> Result<(), String> {
+    pub fn cas_root(&self, map: SerializableMap) -> Result<(), DefiniteError> {
         let response = self.send_rpc(
             object! {type: "cas", key: "root", from: map.original_to_json(), to: map.to_json(), create_if_not_exists: true},
         );
         if response["body"]["type"].to_string() != "cas_ok" {
             stderr().write_all("Cas failed to update root".as_bytes());
-            return Err(format!(
+            return Err(crate::error::txn_conflict(format!(
                 "cas failed with type {}",
                 response["body"]["type"].to_string()
-            ));
+            )));
         }
         Ok(())
     }
 
+    pub fn read_thunk_list(&self, thunk_id: &str) -> Vec<i32> {
+        let response_body = &self.send_rpc(object! {type: "read", key: thunk_id})["body"];
+        if response_body["type"] == "error" {
+            return Vec::new();
+        }
+        response_body["value"]
+            .members()
+            .map(|jv| jv.as_i32().unwrap())
+            .collect()
+    }
+
+    pub fn save_thunk(&self, thunk: &Thunk) -> JsonValue {
+        self.send_rpc(object! {type: "write", key: thunk.id.clone(), value: thunk.value(self)})
+    }
+
+    pub fn new_id(&self) -> String {
+        self.state.next_thunk_id()
+    }
+
     fn init_root(&self) -> SerializableMap {
-        let map = SerializableMap::init();
+        let map = SerializableMap::init(self);
         self.send_rpc(object! {type: "write", key: "root", value: map.to_json()});
         map
     }

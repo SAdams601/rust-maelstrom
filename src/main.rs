@@ -7,7 +7,7 @@ use message_handler::{
     topology_handler::TopologyHandler, txn_handler::TxnHandler, MessageHandler,
 };
 use message_utils::get_message_type;
-use replicator::send_values;
+
 use states::node_state::NodeState;
 use std::{collections::HashMap, io::prelude::*, sync::mpsc::sync_channel};
 use std::{
@@ -19,6 +19,7 @@ use std::{
     thread,
 };
 mod counters;
+mod error;
 mod lin_kv_service;
 mod message_handler;
 mod message_utils;
@@ -49,7 +50,6 @@ lazy_static! {
 }
 
 fn main() {
-    send_values(&NODE_STATE);
     for result in io::stdin().lock().lines() {
         match result {
             Ok(line) => {
@@ -93,7 +93,9 @@ fn while_receive<F: Fn(String)>(receiver: Receiver<String>, f: F) {
 
 fn write_reply(msg: String) {
     let mut stdout = io::stdout();
-    write_log(&format!("Replying: {}", msg));
+    if !msg.contains("\"dest\":\"lin-kv\"") {
+        write_log(&format!("Replying: {}", msg));
+    }
     stdout.write_all(msg.as_bytes());
     stdout.write_all("\n".as_bytes());
     stdout.flush();

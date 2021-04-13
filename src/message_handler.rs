@@ -6,15 +6,33 @@ pub mod replicate_handler;
 pub mod topology_handler;
 pub mod txn_handler;
 
-use json::{object, stringify, JsonValue};
-
+use crate::error::MaelstromError;
 use crate::states::node_state::NodeState;
+use json::{object, stringify, JsonValue};
+use std::io::{stderr, Write};
 
 pub trait MessageHandler: Sync {
-    fn make_response_body(&self, message: &JsonValue, curr_state: &NodeState) -> JsonValue;
+    fn make_response_body(
+        &self,
+        message: &JsonValue,
+        curr_state: &NodeState,
+    ) -> Result<JsonValue, MaelstromError>;
 
     fn handle_message(&self, message: &JsonValue, curr_state: &NodeState) {
-        let maybe_response_body = self.get_response_body(message, curr_state);
+        let response = self.get_response_body(message, curr_state);
+        if response.is_err() {
+            let error = response.expect_err("");
+            let error_body = object! {type: "error", in_reply_to: error.in_reply_to, code: error.error.code, text: error.error.text};
+            let response = self.wrap_response_body(
+                error_body,
+                curr_state,
+                JsonValue::from(error.in_reply_to),
+                self.id_from(&message).clone(),
+            );
+            curr_state.get_channel().send(stringify(response));
+            return;
+        }
+        let maybe_response_body = response.expect("");
         if maybe_response_body.is_some() {
             let response_body = maybe_response_body.unwrap();
             let response = self.wrap_response_body(
@@ -27,8 +45,13 @@ pub trait MessageHandler: Sync {
         }
     }
 
-    fn get_response_body(&self, message: &JsonValue, curr_state: &NodeState) -> Option<JsonValue> {
-        Some(self.make_response_body(message, curr_state))
+    fn get_response_body(
+        &self,
+        message: &JsonValue,
+        curr_state: &NodeState,
+    ) -> Result<Option<JsonValue>, MaelstromError> {
+        self.make_response_body(message, curr_state)
+            .map(|body| Some(body))
     }
 
     fn id_from<'a>(&self, message: &'a JsonValue) -> &'a JsonValue {

@@ -1,6 +1,6 @@
-use json::object;
+use json::{object, JsonValue};
 
-use crate::{message_utils::get_body, states::node_state::NodeState};
+use crate::{error::MaelstromError, message_utils::get_body, states::node_state::NodeState};
 
 use super::MessageHandler;
 
@@ -11,7 +11,7 @@ impl MessageHandler for InitHandler {
         &self,
         message: &json::JsonValue,
         curr_state: &NodeState,
-    ) -> json::JsonValue {
+    ) -> Result<JsonValue, MaelstromError> {
         let body = get_body(message);
         curr_state.set_node_id(body["node_id"].to_string());
         curr_state.set_other_node_ids(
@@ -20,6 +20,6 @@ impl MessageHandler for InitHandler {
                 .map(|jv| jv.as_str().unwrap())
                 .collect(),
         );
-        object! {type: "init_ok"}
+        Ok(object! {type: "init_ok"})
     }
 }

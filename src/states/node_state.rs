@@ -1,13 +1,11 @@
+use super::id_gen::IdGenerator;
+use crate::{counters::pn_counter::PnCounter, message_utils::get_in_reponse_to};
 use json::JsonValue;
 use std::{
     cell::RefCell,
     collections::HashMap,
-    sync::{mpsc::SyncSender, Mutex, MutexGuard, RwLock},
+    sync::{mpsc::SyncSender, Mutex, RwLock},
 };
-
-use crate::{counters::pn_counter::PnCounter, message_utils::get_in_reponse_to};
-
-use super::datomic_state::DatomicState;
 
 pub struct NodeState {
     node_id: RwLock<Option<String>>,
@@ -17,7 +15,7 @@ pub struct NodeState {
     callbacks: RwLock<HashMap<i32, SyncSender<JsonValue>>>,
     counters: RwLock<PnCounter>,
     response_channel: SyncSender<String>,
-    datomic_state: Mutex<DatomicState>,
+    id_gen: RwLock<Option<IdGenerator>>,
 }
 
 impl NodeState {
@@ -30,13 +28,15 @@ impl NodeState {
             callbacks: RwLock::new(HashMap::new()),
             counters: RwLock::new(PnCounter::init()),
             response_channel: response_channel,
-            datomic_state: Mutex::new(DatomicState::init()),
+            id_gen: RwLock::new(None),
         };
         ns
     }
 
     pub fn set_node_id(&self, my_id: String) {
         let mut id = self.node_id.write().unwrap();
+        let mut id_gen = self.id_gen.write().unwrap();
+        *id_gen = Some(IdGenerator::init(my_id.clone()));
         id.replace(my_id);
     }
 
@@ -49,6 +49,17 @@ impl NodeState {
                 ids.push(id);
             }
         });
+    }
+
+    pub fn next_thunk_id(&self) -> String {
+        let gen = self.id_gen.read().unwrap();
+        if gen.is_none() {
+            panic!(format!(
+                "Tried to get id generator but it has not been inialized. Id is: {}",
+                self.node_id()
+            ));
+        }
+        gen.as_ref().unwrap().get_next_id()
     }
 
     pub fn other_nodes(&self) -> Vec<String> {
@@ -101,9 +112,5 @@ impl NodeState {
 
     pub fn get_channel(&self) -> SyncSender<String> {
         self.response_channel.clone()
-    }
-
-    pub fn borrow_datomic(&self) -> MutexGuard<DatomicState> {
-        self.datomic_state.lock().unwrap()
     }
 }

@@ -3,8 +3,9 @@ use std::io::{stderr, Write};
 use json::{array, object, JsonValue};
 
 use crate::{
+    error::{DefiniteError, MaelstromError},
     lin_kv_service::LinKvService,
-    states::{datomic_state::DatomicState, serializable_map::SerializableMap},
+    states::serializable_map::SerializableMap,
 };
 
 use super::MessageHandler;
@@ -25,42 +26,48 @@ impl MessageHandler for TxnHandler<'_> {
     fn make_response_body(
         &self,
         message: &json::JsonValue,
-        curr_state: &crate::states::node_state::NodeState,
-    ) -> json::JsonValue {
-        let txns = handle_txns(&message["body"]["txn"], self.kv_service);
-        object! {type: "txn_ok", txn: txns}
+        _curr_state: &crate::states::node_state::NodeState,
+    ) -> Result<JsonValue, MaelstromError> {
+        let txns = self.handle_txns(&message["body"]["txn"]);
+        txns.map(|txn| object! {type: "txn_ok", txn: txn})
+            .map_err(|s| self.make_error(message, s))
     }
 }
 
-fn handle_txns(txns: &JsonValue, service: &LinKvService) -> JsonValue {
-    let mut arr = JsonValue::new_array();
-    let mut map = service.read_root();
-    for txn_json in txns.members() {
-        let txn = parse_txn(txn_json).unwrap();
-        let txn2 = execute_txn(txn, &mut map);
-        arr.push(txn2);
-    }
-    let res = service.cas_root(map);
-    if res.is_err() {
-        panic!(res.err().unwrap());
-    }
-    arr
-}
-
-enum TxnOp {
-    Read(i32),
-    Append(i32, i32),
-}
-
-fn execute_txn(txn: TxnOp, map: &mut SerializableMap) -> JsonValue {
-    match txn {
-        TxnOp::Read(k) => {
-            let v = map.read(k);
-            array!["r", k, v]
+impl TxnHandler<'_> {
+    fn handle_txns(&self, txns: &JsonValue) -> Result<JsonValue, DefiniteError> {
+        let mut arr = JsonValue::new_array();
+        let mut map = self.kv_service.read_root();
+        for txn_json in txns.members() {
+            let txn = parse_txn(txn_json).unwrap();
+            let txn2 = self.execute_txn(txn, &mut map);
+            arr.push(txn2);
         }
-        TxnOp::Append(k, v) => {
-            map.append(k, v);
-            array!["append", k, v]
+        let save_res = map.save_thunks(self.kv_service);
+        if save_res.is_err() {
+            return Err(save_res.err().unwrap());
+        }
+        let cas_res = self.kv_service.cas_root(map);
+        cas_res.map(|_| arr)
+    }
+
+    fn make_error(&self, message: &JsonValue, error: DefiniteError) -> MaelstromError {
+        MaelstromError {
+            in_reply_to: (message["body"]["msg_id"].as_i32().unwrap()),
+            error: error,
+        }
+    }
+
+    fn execute_txn(&self, txn: TxnOp, map: &mut SerializableMap) -> JsonValue {
+        match txn {
+            TxnOp::Read(k) => {
+                let v = map.read(k, self.kv_service);
+                array!["r", k, v]
+            }
+            TxnOp::Append(k, v) => {
+                map.append(self.kv_service, k, v);
+                array!["append", k, v]
+            }
         }
     }
 }
@@ -78,4 +85,10 @@ fn parse_txn(txn: &JsonValue) -> Option<TxnOp> {
             return None;
         }
     }
+}
+
+#[derive(Debug)]
+enum TxnOp {
+    Read(i32),
+    Append(i32, i32),
 }
