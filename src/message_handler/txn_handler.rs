@@ -5,7 +5,7 @@ use json::{array, object, JsonValue};
 use crate::{
     error::{DefiniteError, MaelstromError},
     lin_kv_service::LinKvService,
-    states::serializable_map::SerializableMap,
+    states::{node_state::NodeState, serializable_map::SerializableMap, thunk::Thunk},
 };
 
 use super::MessageHandler;
@@ -26,18 +26,23 @@ impl MessageHandler for TxnHandler<'_> {
     fn make_response_body(
         &self,
         message: &json::JsonValue,
-        _curr_state: &crate::states::node_state::NodeState,
+        curr_state: &NodeState,
     ) -> Result<JsonValue, MaelstromError> {
-        let txns = self.handle_txns(&message["body"]["txn"]);
+        let txns = self.handle_txns(curr_state, &message["body"]["txn"]);
         txns.map(|txn| object! {type: "txn_ok", txn: txn})
             .map_err(|s| self.make_error(message, s))
     }
 }
 
 impl TxnHandler<'_> {
-    fn handle_txns(&self, txns: &JsonValue) -> Result<JsonValue, DefiniteError> {
+    fn handle_txns(
+        &self,
+        curr_state: &NodeState,
+        txns: &JsonValue,
+    ) -> Result<JsonValue, DefiniteError> {
         let mut arr = JsonValue::new_array();
-        let mut map = self.kv_service.read_root();
+        let thunk = self.kv_service.read_root();
+        let mut map = thunk.value(self.kv_service);
         for txn_json in txns.members() {
             let txn = parse_txn(txn_json).unwrap();
             let txn2 = self.execute_txn(txn, &mut map);
@@ -47,8 +52,18 @@ impl TxnHandler<'_> {
         if save_res.is_err() {
             return Err(save_res.err().unwrap());
         }
-        let cas_res = self.kv_service.cas_root(map);
-        cas_res.map(|_| arr)
+        if map.has_changed() {
+            let new_thunk = Thunk::init(curr_state.next_thunk_id(), Some(map), false);
+            let save_res = new_thunk.save(self.kv_service);
+            if save_res.is_err() {
+                return Err(save_res.err().unwrap());
+            }
+            let cas_res = self.kv_service.cas_root(thunk.id, new_thunk.id);
+            if cas_res.is_err() {
+                return Err(cas_res.err().unwrap());
+            }
+        }
+        Ok(arr)
     }
 
     fn make_error(&self, message: &JsonValue, error: DefiniteError) -> MaelstromError {

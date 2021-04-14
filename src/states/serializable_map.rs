@@ -4,22 +4,16 @@ use json::JsonValue;
 
 use crate::{error::DefiniteError, lin_kv_service::LinKvService};
 
-use super::thunk::Thunk;
+use super::{kv_thunk::KVValue, thunk::Thunk};
 
+#[derive(Default, Clone)]
 pub struct SerializableMap {
     map: HashMap<i32, Thunk<Vec<i32>>>,
     changes: HashMap<i32, Thunk<Vec<i32>>>,
 }
 
-impl SerializableMap {
-    pub fn init() -> SerializableMap {
-        SerializableMap {
-            map: HashMap::new(),
-            changes: HashMap::new(),
-        }
-    }
-
-    pub fn from_json(json: &JsonValue) -> SerializableMap {
+impl KVValue for SerializableMap {
+    fn from_json(json: &JsonValue) -> SerializableMap {
         let mut map = HashMap::new();
         for (k_str, jv) in json.entries() {
             let key = k_str.parse().unwrap();
@@ -32,7 +26,7 @@ impl SerializableMap {
         }
     }
 
-    pub fn to_json(&self) -> JsonValue {
+    fn to_json(&self) -> JsonValue {
         let mut jv = JsonValue::new_object();
         for (k, thunk) in self.changes.iter() {
             jv.insert(&k.to_string(), thunk.id.clone());
@@ -45,13 +39,14 @@ impl SerializableMap {
 
         jv
     }
+}
 
-    pub fn original_to_json(&self) -> JsonValue {
-        let mut jv = JsonValue::new_object();
-        for (k, thunk) in self.map.iter() {
-            jv.insert(&k.to_string(), thunk.id.clone());
+impl SerializableMap {
+    pub fn init() -> SerializableMap {
+        SerializableMap {
+            map: HashMap::new(),
+            changes: HashMap::new(),
         }
-        jv
     }
 
     pub fn read(&self, k: i32, service: &LinKvService) -> Option<Vec<i32>> {
@@ -77,5 +72,9 @@ impl SerializableMap {
             }
         }
         Ok(())
+    }
+
+    pub fn has_changed(&self) -> bool {
+        !self.changes.is_empty()
     }
 }

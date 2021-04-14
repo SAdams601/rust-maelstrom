@@ -1,5 +1,7 @@
 use std::sync::RwLock;
 
+use json::JsonValue;
+
 use crate::{error::DefiniteError, lin_kv_service::LinKvService};
 
 use super::kv_thunk::KVValue;
@@ -7,7 +9,15 @@ use super::kv_thunk::KVValue;
 pub struct Thunk<T: KVValue> {
     pub id: String,
     value: RwLock<Option<T>>,
+    original_value: RwLock<Option<JsonValue>>,
     pub saved: RwLock<bool>,
+}
+
+impl<T: KVValue> Clone for Thunk<T> {
+    fn clone(&self) -> Self {
+        let is_saved = *self.saved.read().unwrap();
+        Thunk::init(self.id.clone(), None, is_saved.clone())
+    }
 }
 
 impl<T: KVValue> Thunk<T> {
@@ -15,6 +25,7 @@ impl<T: KVValue> Thunk<T> {
         Thunk {
             id: id,
             value: RwLock::new(v),
+            original_value: RwLock::new(None),
             saved: RwLock::new(saved),
         }
     }
@@ -25,7 +36,10 @@ impl<T: KVValue> Thunk<T> {
             return m_val.as_ref().unwrap().clone();
         }
         drop(m_val);
-        let val = service.read_thunk_value(&self);
+        let json = service.read_thunk_json(&self).unwrap();
+        let val = T::from_json(&json);
+        let mut orig_json = self.original_value.write().unwrap();
+        *orig_json = Some(json);
         let mut thunk_val = self.value.write().unwrap();
         *thunk_val = Some(val.clone());
         val
@@ -45,5 +59,13 @@ impl<T: KVValue> Thunk<T> {
         let mut saved = self.saved.write().unwrap();
         *saved = true;
         Ok(())
+    }
+
+    pub fn original_json(&self) -> JsonValue {
+        let m_json = self.original_value.read().unwrap();
+        if m_json.is_none() {
+            panic!("Trying to get json for thunk that was never read")
+        }
+        m_json.as_ref().unwrap().clone()
     }
 }

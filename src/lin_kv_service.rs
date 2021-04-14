@@ -20,18 +20,26 @@ impl LinKvService {
         LinKvService { state }
     }
 
-    pub fn read_root(&self) -> SerializableMap {
+    pub fn read_root(&self) -> Thunk<SerializableMap> {
         let response_body = &self.send_rpc(object! {type: "read", key: "root"})["body"];
         if response_body["type"] == "error" {
             let map = self.init_root();
             return map;
         }
-        SerializableMap::from_json(&response_body["value"])
+        Thunk::init(response_body["value"].to_string(), None, true)
     }
 
-    pub fn cas_root(&self, map: SerializableMap) -> Result<(), DefiniteError> {
+    fn init_root(&self) -> Thunk<SerializableMap> {
+        let map = SerializableMap::init();
+        let thunk = Thunk::init(self.state.next_thunk_id(), Some(map), false);
+        thunk.save(self);
+        self.send_rpc(object! {type: "write", key: "root", value: thunk.id.clone()});
+        thunk
+    }
+
+    pub fn cas_root(&self, original_id: String, new_id: String) -> Result<(), DefiniteError> {
         let response = self.send_rpc(
-            object! {type: "cas", key: "root", from: map.original_to_json(), to: map.to_json(), create_if_not_exists: true},
+            object! {type: "cas", key: "root", from: original_id, to: new_id, create_if_not_exists: true},
         );
         if response["body"]["type"].to_string() != "cas_ok" {
             stderr().write_all("Cas failed to update root".as_bytes());
@@ -43,12 +51,12 @@ impl LinKvService {
         Ok(())
     }
 
-    pub fn read_thunk_value<T: KVValue>(&self, thunk: &Thunk<T>) -> T {
+    pub fn read_thunk_json<T: KVValue>(&self, thunk: &Thunk<T>) -> Option<JsonValue> {
         let response_body = &self.send_rpc(object! {type: "read", key: thunk.id.clone()})["body"];
         if response_body["type"] == "error" {
-            return T::default();
+            return None;
         }
-        T::from_json(&response_body["value"])
+        Some(response_body["value"].clone())
     }
 
     pub fn save_thunk<T: KVValue>(&self, thunk: &Thunk<T>) -> JsonValue {
@@ -59,12 +67,6 @@ impl LinKvService {
 
     pub fn new_id(&self) -> String {
         self.state.next_thunk_id()
-    }
-
-    fn init_root(&self) -> SerializableMap {
-        let map = SerializableMap::init();
-        self.send_rpc(object! {type: "write", key: "root", value: map.to_json()});
-        map
     }
 
     fn send_rpc(&self, mut request_body: JsonValue) -> JsonValue {

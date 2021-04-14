@@ -1,6 +1,6 @@
 use json::JsonValue;
 
-pub trait KVValue: Clone + Default {
+pub trait KVValue: Clone {
     fn from_json(json: &JsonValue) -> Self;
 
     fn to_json(&self) -> JsonValue;
