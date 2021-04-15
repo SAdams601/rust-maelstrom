@@ -1,12 +1,25 @@
 use json::{object, JsonValue};
 
-use crate::{error::MaelstromError, message_utils::get_body, states::node_state::NodeState};
+use crate::{
+    error::MaelstromError, lin_kv_service::LinKvService, message_utils::get_body,
+    states::node_state::NodeState,
+};
 
 use super::MessageHandler;
 
-pub struct InitHandler {}
+pub struct InitHandler<'a> {
+    kv_service: &'a LinKvService,
+}
 
-impl MessageHandler for InitHandler {
+impl InitHandler<'_> {
+    pub fn init(service: &LinKvService) -> InitHandler {
+        InitHandler {
+            kv_service: service,
+        }
+    }
+}
+
+impl MessageHandler for InitHandler<'_> {
     fn make_response_body(
         &self,
         message: &json::JsonValue,
@@ -20,6 +33,7 @@ impl MessageHandler for InitHandler {
                 .map(|jv| jv.as_str().unwrap())
                 .collect(),
         );
+        self.kv_service.init_root();
         Ok(object! {type: "init_ok"})
     }
 }

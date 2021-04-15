@@ -28,7 +28,10 @@ mod states;
 lazy_static! {
     static ref MESSAGE_HANDLERS: HashMap<String, Box<dyn MessageHandler>> = {
         let mut map: HashMap<String, Box<dyn MessageHandler>> = HashMap::new();
-        map.insert("init".to_string(), Box::new(InitHandler {}));
+        map.insert(
+            "init".to_string(),
+            Box::new(InitHandler::init(&LIN_KV_SERVICE)),
+        );
         map.insert("echo".to_string(), Box::new(EchoHandler {}));
         map.insert("read".to_string(), Box::new(ReadHandler {}));
         map.insert("topology".to_string(), Box::new(TopologyHandler {}));

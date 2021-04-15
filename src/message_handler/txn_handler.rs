@@ -52,16 +52,19 @@ impl TxnHandler<'_> {
         if save_res.is_err() {
             return Err(save_res.err().unwrap());
         }
-        if map.has_changed() {
+        let new_id = if map.has_changed() {
             let new_thunk = Thunk::init(curr_state.next_thunk_id(), Some(map), false);
             let save_res = new_thunk.save(self.kv_service);
             if save_res.is_err() {
                 return Err(save_res.err().unwrap());
             }
-            let cas_res = self.kv_service.cas_root(thunk.id, new_thunk.id);
-            if cas_res.is_err() {
-                return Err(cas_res.err().unwrap());
-            }
+            new_thunk.id
+        } else {
+            thunk.id.clone()
+        };
+        let cas_res = self.kv_service.cas_root(thunk.id, new_id);
+        if cas_res.is_err() {
+            return Err(cas_res.err().unwrap());
         }
         Ok(arr)
     }

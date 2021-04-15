@@ -1,4 +1,7 @@
-use std::sync::RwLock;
+use std::{
+    io::{stderr, Write},
+    sync::RwLock,
+};
 
 use json::JsonValue;
 
@@ -36,7 +39,7 @@ impl<T: KVValue> Thunk<T> {
             return m_val.as_ref().unwrap().clone();
         }
         drop(m_val);
-        let json = service.read_thunk_json(&self).unwrap();
+        let json = service.read_thunk_json(&self);
         let val = T::from_json(&json);
         let mut orig_json = self.original_value.write().unwrap();
         *orig_json = Some(json);
@@ -59,13 +62,5 @@ impl<T: KVValue> Thunk<T> {
         let mut saved = self.saved.write().unwrap();
         *saved = true;
         Ok(())
-    }
-
-    pub fn original_json(&self) -> JsonValue {
-        let m_json = self.original_value.read().unwrap();
-        if m_json.is_none() {
-            panic!("Trying to get json for thunk that was never read")
-        }
-        m_json.as_ref().unwrap().clone()
     }
 }
