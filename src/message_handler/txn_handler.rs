@@ -1,6 +1,12 @@
-use std::io::{stderr, Write};
+use std::{
+    borrow::BorrowMut,
+    io::{stderr, Write},
+    thread,
+    time::Duration,
+};
 
 use json::{array, object, JsonValue};
+use rand::prelude::ThreadRng;
 
 use crate::{
     error::{DefiniteError, MaelstromError},
@@ -62,9 +68,11 @@ impl TxnHandler<'_> {
         } else {
             thunk.id.clone()
         };
-        let cas_res = self.kv_service.cas_root(thunk.id, new_id);
+        let cas_res = self.kv_service.cas_root(thunk.id.clone(), new_id);
         if cas_res.is_err() {
-            return Err(cas_res.err().unwrap());
+            random_sleep();
+            self.kv_service.update_root();
+            return self.handle_txns(curr_state, txns);
         }
         Ok(arr)
     }
@@ -88,6 +96,11 @@ impl TxnHandler<'_> {
             }
         }
     }
+}
+
+fn random_sleep() {
+    let r = 50 + rand::random::<u64>() % 950;
+    thread::sleep(Duration::from_millis(r));
 }
 
 fn parse_txn(txn: &JsonValue) -> Option<TxnOp> {

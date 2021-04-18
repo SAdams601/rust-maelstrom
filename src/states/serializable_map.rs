@@ -9,7 +9,7 @@ use crate::{error::DefiniteError, lin_kv_service::LinKvService};
 
 use super::{kv_thunk::KVValue, thunk::Thunk};
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct SerializableMap {
     map: HashMap<i32, Thunk<Vec<i32>>>,
     changes: HashMap<i32, Thunk<Vec<i32>>>,

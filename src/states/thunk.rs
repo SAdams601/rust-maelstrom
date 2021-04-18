@@ -9,6 +9,7 @@ use crate::{error::DefiniteError, lin_kv_service::LinKvService};
 
 use super::kv_thunk::KVValue;
 
+#[derive(Debug)]
 pub struct Thunk<T: KVValue> {
     pub id: String,
     value: RwLock<Option<T>>,
@@ -42,7 +43,7 @@ impl<T: KVValue> Thunk<T> {
         let json = service.read_thunk_json(&self);
         let val = T::from_json(&json);
         let mut orig_json = self.original_value.write().unwrap();
-        *orig_json = Some(json);
+        *orig_json = Some(json.clone());
         let mut thunk_val = self.value.write().unwrap();
         *thunk_val = Some(val.clone());
         val
