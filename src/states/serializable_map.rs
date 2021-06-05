@@ -12,7 +12,7 @@ use super::{kv_thunk::KVValue, thunk::Thunk};
 #[derive(Default, Clone, Debug)]
 pub struct SerializableMap {
     map: HashMap<i32, Thunk<Vec<i32>>>,
-    changes: HashMap<i32, Thunk<Vec<i32>>>,
+    has_changed: bool
 }
 
 impl KVValue for SerializableMap {
@@ -24,20 +24,15 @@ impl KVValue for SerializableMap {
             map.insert(key, Thunk::init(id, None, true));
         }
         SerializableMap {
-            map,
-            changes: HashMap::new(),
+            map: map,
+            has_changed: false
         }
     }
 
     fn to_json(&self) -> JsonValue {
         let mut jv = JsonValue::new_object();
-        for (k, thunk) in self.changes.iter() {
-            jv.insert(&k.to_string(), thunk.id.clone());
-        }
         for (k, thunk) in self.map.iter() {
-            if !self.changes.contains_key(k) {
-                jv.insert(&k.to_string(), thunk.id.clone());
-            }
+            jv.insert(&k.to_string(), thunk.id.clone());
         }
         jv
     }
@@ -47,14 +42,11 @@ impl SerializableMap {
     pub fn init() -> SerializableMap {
         SerializableMap {
             map: HashMap::new(),
-            changes: HashMap::new(),
+            has_changed: false
         }
     }
 
     pub fn read(&self, k: i32, service: &LinKvService) -> Option<Vec<i32>> {
-        if self.changes.contains_key(&k) {
-            return self.changes.get(&k).map(|thunk| thunk.value(service));
-        }
         self.map.get(&k).map(|thunk| thunk.value(service))
     }
 
@@ -63,11 +55,12 @@ impl SerializableMap {
         vec.push(v);
         let new_id = service.new_id();
         let thunk = Thunk::init(new_id, Some(vec), false);
-        self.changes.insert(k, thunk);
+        self.map.insert(k, thunk);
+        self.has_changed = true;
     }
 
     pub fn save_thunks(&self, service: &LinKvService) -> Result<(), DefiniteError> {
-        for (_key, thunk) in &self.changes {
+        for (_key, thunk) in &self.map {
             let save_res = thunk.save(service);
             if save_res.is_err() {
                 return save_res;
@@ -77,6 +70,6 @@ impl SerializableMap {
     }
 
     pub fn has_changed(&self) -> bool {
-        !self.changes.is_empty()
+        self.has_changed
     }
 }
