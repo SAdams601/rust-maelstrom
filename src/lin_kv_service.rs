@@ -8,7 +8,7 @@ use json::{object, stringify, JsonValue};
 use std::{
     collections::HashMap,
     io::{stderr, Write},
-    sync::{mpsc::sync_channel, Arc, Mutex, RwLock},
+    sync::{mpsc::sync_channel, Mutex},
     thread,
     time::Duration,
 };

@@ -13,7 +13,6 @@ use super::kv_thunk::KVValue;
 pub struct Thunk<T: KVValue> {
     pub id: String,
     value: RwLock<Option<T>>,
-    original_value: RwLock<Option<JsonValue>>,
     pub saved: RwLock<bool>,
 }
 
@@ -27,9 +26,8 @@ impl<T: KVValue> Clone for Thunk<T> {
 impl<T: KVValue> Thunk<T> {
     pub fn init(id: String, v: Option<T>, saved: bool) -> Thunk<T> {
         Thunk {
-            id: id,
+            id,
             value: RwLock::new(v),
-            original_value: RwLock::new(None),
             saved: RwLock::new(saved),
         }
     }
@@ -42,8 +40,6 @@ impl<T: KVValue> Thunk<T> {
         drop(m_val);
         let json = service.read_thunk_json(&self);
         let val = T::from_json(&json);
-        let mut orig_json = self.original_value.write().unwrap();
-        *orig_json = Some(json.clone());
         let mut thunk_val = self.value.write().unwrap();
         *thunk_val = Some(val.clone());
         val
