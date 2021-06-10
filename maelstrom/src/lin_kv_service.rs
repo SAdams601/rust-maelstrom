@@ -1,10 +1,3 @@
-use crate::{
-    error::DefiniteError,
-    states::{
-        kv_thunk::KVValue, node_state::NodeState, serializable_map::SerializableMap, thunk::Thunk,
-    },
-};
-use json::{object, stringify, JsonValue};
 use std::{
     collections::HashMap,
     io::{stderr, Write},
@@ -13,14 +6,19 @@ use std::{
     time::Duration,
 };
 
+use json::{JsonValue, object, stringify};
+use shared_lib::error::DefiniteError;
+use shared_lib::node_state::NodeState;
+use crate::states::{kv_thunk::KVValue, maelstrom_node_state::MaelstromNodeState, serializable_map::SerializableMap, thunk::Thunk};
+
 pub struct LinKvService {
-    state: &'static NodeState,
+    state: &'static MaelstromNodeState,
     cache: Mutex<HashMap<String, JsonValue>>,
     root: Mutex<Thunk<SerializableMap>>,
 }
 
 impl LinKvService {
-    pub fn init(state: &'static NodeState) -> LinKvService {
+    pub fn init(state: &'static MaelstromNodeState) -> LinKvService {
         LinKvService {
             state,
             cache: Mutex::new(HashMap::new()),
@@ -59,7 +57,7 @@ impl LinKvService {
         if response["body"]["type"].to_string() != "cas_ok" {
             stderr()
                 .write_all(format!("Cas failed to update root at {}\n", original_id).as_bytes());
-            return Err(crate::error::txn_conflict("cas root failed".to_string()));
+            return Err(shared_lib::error::txn_conflict("cas root failed".to_string()));
         }
         Ok(())
     }
@@ -74,7 +72,7 @@ impl LinKvService {
                     thunk.id.clone(),
                     value.clone()
                 )
-                .as_bytes(),
+                    .as_bytes(),
             );
             return value.clone();
         }

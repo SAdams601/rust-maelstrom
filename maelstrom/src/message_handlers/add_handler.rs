@@ -1,16 +1,16 @@
 use json::{object, JsonValue};
-
-use crate::{error::MaelstromError, states::node_state::NodeState};
-
-use super::MessageHandler;
+use shared_lib::{error::MaelstromError, message_handler::MessageHandler};
+use crate::states::maelstrom_node_state::MaelstromNodeState;
 
 pub struct AddHandler {}
 
 impl MessageHandler for AddHandler {
+    type State = MaelstromNodeState;
+
     fn make_response_body(
         &self,
         message: &JsonValue,
-        curr_state: &NodeState,
+        curr_state: &MaelstromNodeState,
     ) -> Result<JsonValue, MaelstromError> {
         let delta = message["body"]["delta"].as_i32().unwrap();
         curr_state.new_message(delta);

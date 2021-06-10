@@ -1,16 +1,16 @@
 use json::{object, JsonValue};
-
-use crate::{error::MaelstromError, states::node_state::NodeState};
-
-use super::MessageHandler;
+use shared_lib::{error::MaelstromError, message_handler::MessageHandler};
+use crate::{states::maelstrom_node_state::MaelstromNodeState};
 
 pub struct EchoHandler {}
 
 impl MessageHandler for EchoHandler {
+    type State = MaelstromNodeState;
+
     fn make_response_body(
         &self,
         message: &JsonValue,
-        _curr_state: &NodeState,
+        _curr_state: &MaelstromNodeState,
     ) -> Result<JsonValue, MaelstromError> {
         Ok(object! {type: "echo_ok", echo: message["body"]["echo"].clone()})
     }

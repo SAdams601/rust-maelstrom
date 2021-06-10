@@ -4,8 +4,8 @@ use std::{
 };
 
 use json::JsonValue;
-
-use crate::{error::DefiniteError, lin_kv_service::LinKvService};
+use shared_lib::error::DefiniteError;
+use crate::lin_kv_service::LinKvService;
 
 use super::kv_thunk::KVValue;
 
@@ -51,7 +51,7 @@ impl<T: KVValue> Thunk<T> {
         }
         let result = service.save_thunk(self)["body"]["type"].to_string();
         if result != "write_ok" {
-            return Err(crate::error::abort(format!(
+            return Err(shared_lib::error::abort(format!(
                 "Failed to save thunk with id {}",
                 self.id
             )));

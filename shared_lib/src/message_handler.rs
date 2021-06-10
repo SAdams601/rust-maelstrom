@@ -1,23 +1,16 @@
-pub mod add_handler;
-pub mod echo_handler;
-pub mod init_handler;
-pub mod read_handler;
-pub mod replicate_handler;
-pub mod topology_handler;
-pub mod txn_handler;
-
-use crate::error::MaelstromError;
-use crate::states::node_state::NodeState;
-use json::{object, stringify, JsonValue};
+use json::{JsonValue, stringify, object};
+use crate::{error::MaelstromError, node_state::NodeState};
 
 pub trait MessageHandler: Sync {
+    type State : NodeState;
+
     fn make_response_body(
         &self,
         message: &JsonValue,
-        curr_state: &NodeState,
+        curr_state: &Self::State,
     ) -> Result<JsonValue, MaelstromError>;
 
-    fn handle_message(&self, message: &JsonValue, curr_state: &NodeState) {
+    fn handle_message(&self, message: &JsonValue, curr_state: &Self::State) {
         let response = self.get_response_body(message, curr_state);
         if response.is_err() {
             let error = response.expect_err("");
@@ -47,7 +40,7 @@ pub trait MessageHandler: Sync {
     fn get_response_body(
         &self,
         message: &JsonValue,
-        curr_state: &NodeState,
+        curr_state: &Self::State,
     ) -> Result<Option<JsonValue>, MaelstromError> {
         self.make_response_body(message, curr_state)
             .map(|body| Some(body))
@@ -60,7 +53,7 @@ pub trait MessageHandler: Sync {
     fn wrap_response_body(
         &self,
         mut response_body: JsonValue,
-        state: &NodeState,
+        state: &Self::State,
         msg_replying_to: JsonValue,
         dest: JsonValue,
     ) -> JsonValue {

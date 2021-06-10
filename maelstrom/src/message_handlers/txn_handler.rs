@@ -7,14 +7,11 @@ use std::{
 
 use json::{array, object, JsonValue};
 use rand::prelude::ThreadRng;
-
+use shared_lib::{error::{MaelstromError, DefiniteError}, message_handler::MessageHandler};
 use crate::{
-    error::{DefiniteError, MaelstromError},
     lin_kv_service::LinKvService,
-    states::{node_state::NodeState, serializable_map::SerializableMap, thunk::Thunk},
+    states::{maelstrom_node_state::MaelstromNodeState, serializable_map::SerializableMap, thunk::Thunk},
 };
-
-use super::MessageHandler;
 
 pub struct TxnHandler<'a> {
     kv_service: &'a LinKvService,
@@ -29,10 +26,12 @@ impl TxnHandler<'_> {
 }
 
 impl MessageHandler for TxnHandler<'_> {
+    type State = MaelstromNodeState;
+
     fn make_response_body(
         &self,
         message: &json::JsonValue,
-        curr_state: &NodeState,
+        curr_state: &MaelstromNodeState,
     ) -> Result<JsonValue, MaelstromError> {
         let txns = self.handle_txns(curr_state, &message["body"]["txn"]);
         txns.map(|txn| object! {type: "txn_ok", txn: txn})
@@ -43,7 +42,7 @@ impl MessageHandler for TxnHandler<'_> {
 impl TxnHandler<'_> {
     fn handle_txns(
         &self,
-        curr_state: &NodeState,
+        curr_state: &MaelstromNodeState,
         txns: &JsonValue,
     ) -> Result<JsonValue, DefiniteError> {
         let mut arr = JsonValue::new_array();

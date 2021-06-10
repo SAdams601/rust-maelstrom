@@ -4,8 +4,8 @@ use std::{
 };
 
 use json::{stringify, JsonValue};
-
-use crate::{error::DefiniteError, lin_kv_service::LinKvService};
+use shared_lib::error::DefiniteError;
+use crate::lin_kv_service::LinKvService;
 
 use super::{kv_thunk::KVValue, thunk::Thunk};
 

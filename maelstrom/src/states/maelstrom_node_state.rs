@@ -6,8 +6,9 @@ use std::{
     collections::HashMap,
     sync::{mpsc::SyncSender, Mutex, RwLock},
 };
+use shared_lib::node_state::NodeState;
 
-pub struct NodeState {
+pub struct MaelstromNodeState {
     node_id: RwLock<Option<String>>,
     other_ids: RwLock<Vec<String>>,
     msg_id: Mutex<RefCell<i32>>,
@@ -18,9 +19,24 @@ pub struct NodeState {
     id_gen: RwLock<Option<IdGenerator>>,
 }
 
-impl NodeState {
-    pub fn init(response_channel: SyncSender<String>) -> NodeState {
-        let ns = NodeState {
+impl NodeState for MaelstromNodeState {
+    fn get_channel(&self) -> SyncSender<String> {
+        self.response_channel.clone()
+    }
+
+    fn next_msg_id(&self) -> i32 {
+        let cell = self.msg_id.lock().unwrap();
+        cell.replace_with(|i| *i + 1)
+    }
+
+    fn node_id(&self) -> String {
+        self.node_id.read().unwrap().as_ref().unwrap().clone()
+    }
+}
+
+impl MaelstromNodeState {
+    pub fn init(response_channel: SyncSender<String>) -> MaelstromNodeState {
+        let ns = MaelstromNodeState {
             node_id: RwLock::new(None),
             other_ids: RwLock::new(Vec::new()),
             msg_id: Mutex::new(RefCell::new(0)),
@@ -66,21 +82,12 @@ impl NodeState {
         self.other_ids.read().unwrap().clone()
     }
 
-    pub fn node_id(&self) -> String {
-        self.node_id.read().unwrap().as_ref().unwrap().clone()
-    }
-
     pub fn read_counters(&self) -> i32 {
         self.counters.read().unwrap().read()
     }
 
     pub fn counters_state(&self) -> JsonValue {
         self.counters.read().unwrap().to_json()
-    }
-
-    pub fn next_msg_id(&self) -> i32 {
-        let cell = self.msg_id.lock().unwrap();
-        cell.replace_with(|i| *i + 1)
     }
 
     pub fn replace_topology(&self, new_neighbors: Vec<String>) {
@@ -108,9 +115,5 @@ impl NodeState {
 
     pub fn add_callback(&self, message_id: i32, channel: SyncSender<JsonValue>) {
         self.callbacks.write().unwrap().insert(message_id, channel);
-    }
-
-    pub fn get_channel(&self) -> SyncSender<String> {
-        self.response_channel.clone()
     }
 }

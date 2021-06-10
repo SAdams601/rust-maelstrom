@@ -1,14 +1,14 @@
 use json::{self, JsonValue};
 use lazy_static::lazy_static;
 use lin_kv_service::LinKvService;
-use message_handler::{
+use message_handlers::{
     add_handler::AddHandler, echo_handler::EchoHandler, init_handler::InitHandler,
     read_handler::ReadHandler, replicate_handler::ReplicateHandler,
-    topology_handler::TopologyHandler, txn_handler::TxnHandler, MessageHandler,
+    topology_handler::TopologyHandler, txn_handler::TxnHandler,
 };
 use message_utils::get_message_type;
 
-use states::node_state::NodeState;
+use states::maelstrom_node_state::MaelstromNodeState;
 use std::{collections::HashMap, io::prelude::*, sync::mpsc::sync_channel};
 use std::{
     io::{self},
@@ -19,16 +19,16 @@ use std::{
     thread,
 };
 use shared_lib::read_respond::read_respond;
+use shared_lib::message_handler::MessageHandler;
 mod counters;
-mod error;
 mod lin_kv_service;
-mod message_handler;
+mod message_handlers;
 mod message_utils;
 mod states;
 
 lazy_static! {
-    static ref MESSAGE_HANDLERS: HashMap<String, Box<dyn MessageHandler>> = {
-        let mut map: HashMap<String, Box<dyn MessageHandler>> = HashMap::new();
+    static ref MESSAGE_HANDLERS: HashMap<String, Box<dyn MessageHandler<State = MaelstromNodeState>>> = {
+        let mut map: HashMap<String, Box<dyn MessageHandler<State = MaelstromNodeState>>> = HashMap::new();
         map.insert(
             "init".to_string(),
             Box::new(InitHandler::init(&LIN_KV_SERVICE)),
@@ -44,10 +44,10 @@ lazy_static! {
         );
         map
     };
-    static ref NODE_STATE: NodeState = {
+    static ref NODE_STATE: MaelstromNodeState = {
         let (reply_sender, reply_receiver) = sync_channel(1);
         thread::spawn(|| while_receive(reply_receiver, write_reply));
-        NodeState::init(reply_sender)
+        MaelstromNodeState::init(reply_sender)
     };
     static ref LIN_KV_SERVICE: LinKvService = LinKvService::init(&NODE_STATE);
 }

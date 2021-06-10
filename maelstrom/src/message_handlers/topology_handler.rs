@@ -1,15 +1,16 @@
 use json::{object, JsonValue};
+use shared_lib::{error::MaelstromError, message_handler::MessageHandler, node_state::NodeState};
+use crate::{states::maelstrom_node_state::MaelstromNodeState};
 
-use crate::{error::MaelstromError, states::node_state::NodeState};
-
-use super::MessageHandler;
 pub struct TopologyHandler {}
 
 impl MessageHandler for TopologyHandler {
+    type State = MaelstromNodeState;
+
     fn make_response_body(
         &self,
         message: &JsonValue,
-        curr_state: &NodeState,
+        curr_state: &MaelstromNodeState,
     ) -> Result<JsonValue, MaelstromError> {
         let mut neighbors: Vec<String> = Vec::new();
         message["body"]["topology"][curr_state.node_id()]
