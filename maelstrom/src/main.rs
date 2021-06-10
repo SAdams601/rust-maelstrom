@@ -1,4 +1,4 @@
-use json::{self};
+use json::{self, JsonValue};
 use lazy_static::lazy_static;
 use lin_kv_service::LinKvService;
 use message_handler::{
@@ -18,6 +18,7 @@ use std::{
     io::{stderr, Write},
     thread,
 };
+use shared_lib::read_respond::read_respond;
 mod counters;
 mod error;
 mod lin_kv_service;
@@ -52,36 +53,24 @@ lazy_static! {
 }
 
 fn main() {
-    for result in io::stdin().lock().lines() {
-        match result {
-            Ok(line) => {
-                io::stderr().write(format!("Received {}\n", line).as_ref());
-                let parsed_res = json::parse(&line);
-                match parsed_res {
-                    Ok(parsed) => match NODE_STATE.check_for_callback(&parsed) {
-                        Some(sender) => {
-                            sender.send(parsed);
-                        }
-                        None => {
-                            let message_type: String = get_message_type(&parsed);
-                            if MESSAGE_HANDLERS.contains_key(&message_type) {
-                                let handler = MESSAGE_HANDLERS.get(&message_type).unwrap();
-                                thread::spawn(move || handler.handle_message(&parsed, &NODE_STATE));
-                            } else {
-                                write_log(&format!(
-                                    "Did not find handler for message: {:?}",
-                                    parsed
-                                ));
-                            }
-                        }
-                    },
-                    Err(err) => {
-                        std::process::exit(1);
-                    }
-                }
-            }
-            Err(err) => {
-                std::process::exit(1);
+    read_respond(message_handler);
+}
+
+fn message_handler(parsed: JsonValue) {
+    match NODE_STATE.check_for_callback(&parsed) {
+        Some(sender) => {
+            sender.send(parsed);
+        }
+        None => {
+            let message_type: String = get_message_type(&parsed);
+            if MESSAGE_HANDLERS.contains_key(&message_type) {
+                let handler = MESSAGE_HANDLERS.get(&message_type).unwrap();
+                thread::spawn(move || handler.handle_message(&parsed, &NODE_STATE));
+            } else {
+                write_log(&format!(
+                    "Did not find handler for message: {:?}",
+                    parsed
+                ));
             }
         }
     }
