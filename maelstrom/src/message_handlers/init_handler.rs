@@ -1,7 +1,7 @@
 use json::{object, JsonValue};
-use shared_lib::{error::MaelstromError, message_handler::MessageHandler};
+use shared_lib::{error::MaelstromError, message_handler::MessageHandler, message_utils::get_body};
 use crate::{
-    lin_kv_service::LinKvService, message_utils::get_body,
+    lin_kv_service::LinKvService,
     states::maelstrom_node_state::MaelstromNodeState,
 };
 

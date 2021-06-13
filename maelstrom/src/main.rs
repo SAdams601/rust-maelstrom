@@ -6,7 +6,6 @@ use message_handlers::{
     read_handler::ReadHandler, replicate_handler::ReplicateHandler,
     topology_handler::TopologyHandler, txn_handler::TxnHandler,
 };
-use message_utils::get_message_type;
 
 use states::maelstrom_node_state::MaelstromNodeState;
 use std::{collections::HashMap, io::prelude::*, sync::mpsc::sync_channel};
@@ -18,12 +17,10 @@ use std::{
     io::{stderr, Write},
     thread,
 };
-use shared_lib::read_respond::read_respond;
-use shared_lib::message_handler::MessageHandler;
+use shared_lib::{ read_respond::read_respond, message_handler::MessageHandler, message_utils::get_message_type};
 mod counters;
 mod lin_kv_service;
 mod message_handlers;
-mod message_utils;
 mod states;
 
 lazy_static! {

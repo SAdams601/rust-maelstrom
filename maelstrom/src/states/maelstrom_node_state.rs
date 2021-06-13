@@ -1,12 +1,12 @@
 use super::id_gen::IdGenerator;
-use crate::{counters::pn_counter::PnCounter, message_utils::get_in_reponse_to};
+use crate::counters::pn_counter::PnCounter;
 use json::JsonValue;
 use std::{
     cell::RefCell,
     collections::HashMap,
     sync::{mpsc::SyncSender, Mutex, RwLock},
 };
-use shared_lib::node_state::NodeState;
+use shared_lib::{node_state::NodeState, message_utils::get_in_reponse_to};
 
 pub struct MaelstromNodeState {
     node_id: RwLock<Option<String>>,
