@@ -10,7 +10,7 @@ use rand::prelude::ThreadRng;
 use shared_lib::{error::{MaelstromError, DefiniteError}, message_handler::MessageHandler};
 use crate::{
     lin_kv_service::LinKvService,
-    states::{maelstrom_node_state::MaelstromNodeState, serializable_map::SerializableMap, thunk::Thunk},
+    states::{maelstrom_node_state::MaelstromState, serializable_map::SerializableMap, thunk::Thunk},
 };
 
 pub struct TxnHandler<'a> {
@@ -25,13 +25,12 @@ impl TxnHandler<'_> {
     }
 }
 
-impl MessageHandler for TxnHandler<'_> {
-    type State = MaelstromNodeState;
+impl MessageHandler<MaelstromState> for TxnHandler<'_> {
 
     fn make_response_body(
         &self,
         message: &json::JsonValue,
-        curr_state: &MaelstromNodeState,
+        curr_state: &MaelstromState,
     ) -> Result<JsonValue, MaelstromError> {
         let txns = self.handle_txns(curr_state, &message["body"]["txn"]);
         txns.map(|txn| object! {type: "txn_ok", txn: txn})
@@ -42,7 +41,7 @@ impl MessageHandler for TxnHandler<'_> {
 impl TxnHandler<'_> {
     fn handle_txns(
         &self,
-        curr_state: &MaelstromNodeState,
+        curr_state: &MaelstromState,
         txns: &JsonValue,
     ) -> Result<JsonValue, DefiniteError> {
         let mut arr = JsonValue::new_array();

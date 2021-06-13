@@ -1,30 +1,25 @@
 use shared_lib::node_state::NodeState;
 use std::sync::mpsc::SyncSender;
+use std::sync::{RwLock, Mutex};
+use std::cell::RefCell;
+use std::ops::Deref;
 
-pub(crate) struct RaftNodeState {}
+pub(crate) struct RaftState {
+    node_state : NodeState
+}
 
-impl RaftNodeState {
-    pub(crate) fn set_other_node_ids(&self, p0: Vec<&str>) {
-        todo!()
+impl RaftState {
+    pub fn init(response_channel: SyncSender<String>) -> RaftState {
+        RaftState {
+            node_state: NodeState::init(response_channel)
+        }
     }
 }
 
-impl RaftNodeState {
-    pub(crate) fn set_node_id(&self, id: String) {
-        todo!()
-    }
-}
+impl Deref for RaftState {
+    type Target = NodeState;
 
-impl NodeState for RaftNodeState {
-    fn get_channel(&self) -> SyncSender<String> {
-        todo!()
-    }
-
-    fn next_msg_id(&self) -> i32 {
-        todo!()
-    }
-
-    fn node_id(&self) -> String {
-        todo!()
+    fn deref(&self) -> &Self::Target {
+        &self.node_state
     }
 }

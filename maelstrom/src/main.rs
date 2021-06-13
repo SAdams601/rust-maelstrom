@@ -7,7 +7,7 @@ use message_handlers::{
     topology_handler::TopologyHandler, txn_handler::TxnHandler,
 };
 
-use states::maelstrom_node_state::MaelstromNodeState;
+use states::maelstrom_node_state::MaelstromState;
 use std::{collections::HashMap, io::prelude::*, sync::mpsc::sync_channel};
 use std::{
     io::{self},
@@ -24,8 +24,8 @@ mod message_handlers;
 mod states;
 
 lazy_static! {
-    static ref MESSAGE_HANDLERS: HashMap<String, Box<dyn MessageHandler<State = MaelstromNodeState>>> = {
-        let mut map: HashMap<String, Box<dyn MessageHandler<State = MaelstromNodeState>>> = HashMap::new();
+    static ref MESSAGE_HANDLERS: HashMap<String, Box<dyn MessageHandler<MaelstromState>>> = {
+        let mut map: HashMap<String, Box<dyn MessageHandler<MaelstromState>>> = HashMap::new();
         map.insert(
             "init".to_string(),
             Box::new(InitHandler::init(&LIN_KV_SERVICE)),
@@ -41,10 +41,10 @@ lazy_static! {
         );
         map
     };
-    static ref NODE_STATE: MaelstromNodeState = {
+    static ref NODE_STATE: MaelstromState = {
         let (reply_sender, reply_receiver) = sync_channel(1);
         thread::spawn(|| while_receive(reply_receiver, write_reply));
-        MaelstromNodeState::init(reply_sender)
+        MaelstromState::init(reply_sender)
     };
     static ref LIN_KV_SERVICE: LinKvService = LinKvService::init(&NODE_STATE);
 }

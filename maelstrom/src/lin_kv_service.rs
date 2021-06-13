@@ -9,16 +9,16 @@ use std::{
 use json::{JsonValue, object, stringify};
 use shared_lib::error::DefiniteError;
 use shared_lib::node_state::NodeState;
-use crate::states::{kv_thunk::KVValue, maelstrom_node_state::MaelstromNodeState, serializable_map::SerializableMap, thunk::Thunk};
+use crate::states::{kv_thunk::KVValue, maelstrom_node_state::MaelstromState, serializable_map::SerializableMap, thunk::Thunk};
 
 pub struct LinKvService {
-    state: &'static MaelstromNodeState,
+    state: &'static MaelstromState,
     cache: Mutex<HashMap<String, JsonValue>>,
     root: Mutex<Thunk<SerializableMap>>,
 }
 
 impl LinKvService {
-    pub fn init(state: &'static MaelstromNodeState) -> LinKvService {
+    pub fn init(state: &'static MaelstromState) -> LinKvService {
         LinKvService {
             state,
             cache: Mutex::new(HashMap::new()),

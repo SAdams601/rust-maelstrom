@@ -1,16 +1,15 @@
 use json::{object, JsonValue};
 use shared_lib::{error::MaelstromError, message_handler::MessageHandler, node_state::NodeState, message_utils::get_body};
-use crate::raft_node_state::RaftNodeState;
+use crate::raft_node_state::RaftState;
 
 struct InitHandler {}
 
-impl MessageHandler for InitHandler {
-    type State = RaftNodeState;
+impl MessageHandler<RaftState> for InitHandler {
 
     fn make_response_body(
         &self,
         message: &json::JsonValue,
-        curr_state: &Self::State,
+        curr_state: &RaftState,
     ) -> Result<JsonValue, MaelstromError> {
         let body = get_body(message);
         curr_state.set_node_id(body["node_id"].to_string());
