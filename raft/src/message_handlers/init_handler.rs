@@ -2,7 +2,13 @@ use json::{object, JsonValue};
 use shared_lib::{error::MaelstromError, message_handler::MessageHandler, node_state::NodeState, message_utils::get_body};
 use crate::raft_node_state::RaftState;
 
-struct InitHandler {}
+pub struct InitHandler {}
+
+impl InitHandler {
+
+    pub fn init() -> InitHandler { InitHandler {} }
+
+}
 
 impl MessageHandler<RaftState> for InitHandler {
 

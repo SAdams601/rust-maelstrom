@@ -6,7 +6,7 @@ use std::{
     collections::HashMap,
     sync::{mpsc::SyncSender, Mutex, RwLock},
 };
-use shared_lib::{node_state::NodeState, message_utils::get_in_reponse_to};
+use shared_lib::{node_state::NodeState, message_utils::get_in_response_to};
 use std::sync::RwLockWriteGuard;
 use std::ops::Deref;
 
@@ -64,7 +64,7 @@ impl MaelstromState {
     }
 
     pub fn check_for_callback(&self, message: &JsonValue) -> Option<SyncSender<JsonValue>> {
-        let in_response_to = get_in_reponse_to(message);
+        let in_response_to = get_in_response_to(message);
         match in_response_to {
             Some(id) => self.callbacks.write().unwrap().remove(&id),
             None => None,

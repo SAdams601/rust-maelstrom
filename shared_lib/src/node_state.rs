@@ -1,7 +1,6 @@
 use std::sync::mpsc::SyncSender;
 use std::sync::{Mutex, RwLock};
 use std::cell::RefCell;
-use std::ops::Deref;
 
 pub struct NodeState {
     node_id: RwLock<Option<String>>,
