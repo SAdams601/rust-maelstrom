@@ -1,21 +1,27 @@
 use shared_lib::node_state::NodeState;
 use std::sync::mpsc::SyncSender;
-use std::sync::{Mutex};
+use std::sync::{Mutex, RwLock};
 use std::cell::RefCell;
 use std::ops::Deref;
 use std::collections::HashMap;
 use shared_lib::error::{key_does_not_exist, DefiniteError, precondition_failed};
+use std::io::{stderr, Write};
+use crate::election_state::ElectionState;
+use std::thread;
 
 pub struct RaftState {
     node_state : NodeState,
-    values : Mutex<HashMap<i32, i32>>
+    values : Mutex<HashMap<i32, i32>>,
+    election_state: ElectionState
 }
 
 impl RaftState {
     pub fn init(response_channel: SyncSender<String>) -> RaftState {
+        let mut election_state = ElectionState::init();
         RaftState {
             node_state: NodeState::init(response_channel),
-            values : Mutex::new(HashMap::new())
+            values : Mutex::new(HashMap::new()),
+            election_state
         }
     }
 

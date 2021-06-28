@@ -3,6 +3,8 @@ mod message_handlers;
 use message_handlers::init_handler::InitHandler;
 
 mod raft_node_state;
+mod election_state;
+
 
 use raft_node_state::RaftState;
 use lazy_static::lazy_static;
