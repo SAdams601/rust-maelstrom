@@ -18,7 +18,7 @@ use json::JsonValue;
 use crate::message_handlers::read_handler::ReadHandler;
 use crate::message_handlers::cas_handler::CasHandler;
 use crate::message_handlers::write_handler::WriteHandler;
-
+use crate::election_state::ElectionState;
 
 lazy_static! {
     static ref MESSAGE_HANDLERS: HashMap<String, Box<dyn MessageHandler<RaftState>>> = {
@@ -41,6 +41,7 @@ lazy_static! {
 }
 
 fn main() {
+    election_state::election_loop();
     read_respond::read_respond( message_handler)
 }
 

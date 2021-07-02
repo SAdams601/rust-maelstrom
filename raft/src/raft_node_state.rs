@@ -12,16 +12,13 @@ use std::thread;
 pub struct RaftState {
     node_state : NodeState,
     values : Mutex<HashMap<i32, i32>>,
-    election_state: ElectionState
 }
 
 impl RaftState {
     pub fn init(response_channel: SyncSender<String>) -> RaftState {
-        let mut election_state = ElectionState::init();
         RaftState {
             node_state: NodeState::init(response_channel),
             values : Mutex::new(HashMap::new()),
-            election_state
         }
     }
 
