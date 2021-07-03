@@ -17,7 +17,9 @@ use std::{
     io::{stderr, Write},
     thread,
 };
-use shared_lib::{ read_respond::read_respond, message_handler::MessageHandler, message_utils::get_message_type};
+use shared_lib::{ stdio::while_reply, message_handler::MessageHandler, message_utils::get_message_type};
+use shared_lib::read_respond::read_respond_loop;
+
 mod counters;
 mod lin_kv_service;
 mod message_handlers;
@@ -43,54 +45,14 @@ lazy_static! {
     };
     static ref NODE_STATE: MaelstromState = {
         let (reply_sender, reply_receiver) = sync_channel(1);
-        thread::spawn(|| while_receive(reply_receiver, write_reply));
+        thread::spawn(|| while_reply(reply_receiver));
         MaelstromState::init(reply_sender)
     };
     static ref LIN_KV_SERVICE: LinKvService = LinKvService::init(&NODE_STATE);
 }
 
 fn main() {
-    read_respond(message_handler);
+    read_respond_loop(&*NODE_STATE, &*MESSAGE_HANDLERS)
 }
 
-fn message_handler(parsed: JsonValue) {
-    match NODE_STATE.check_for_callback(&parsed) {
-        Some(sender) => {
-            sender.send(parsed);
-        }
-        None => {
-            let message_type: String = get_message_type(&parsed);
-            if MESSAGE_HANDLERS.contains_key(&message_type) {
-                let handler = MESSAGE_HANDLERS.get(&message_type).unwrap();
-                thread::spawn(move || handler.handle_message(&parsed, &NODE_STATE));
-            } else {
-                write_log(&format!(
-                    "Did not find handler for message: {:?}",
-                    parsed
-                ));
-            }
-        }
-    }
-}
 
-fn while_receive<F: Fn(String)>(receiver: Receiver<String>, f: F) {
-    while let Ok(text) = receiver.recv() {
-        f(text);
-    }
-}
-
-fn write_reply(msg: String) {
-    let mut stdout = io::stdout();
-    if !msg.contains("\"dest\":\"lin-kv\"") {
-        write_log(&format!("Replying: {}", msg));
-    }
-    stdout.write_all(msg.as_bytes());
-    stdout.write_all("\n".as_bytes());
-    stdout.flush();
-}
-
-fn write_log(msg: &str) {
-    stderr().write(msg.as_bytes());
-    stderr().write(b"\n");
-    stderr().flush();
-}

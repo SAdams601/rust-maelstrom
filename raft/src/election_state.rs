@@ -41,7 +41,7 @@ impl ElectionState {
     fn advance_term(&mut self, new_term: i32) -> Result<(), String> {
         let mut curr_term = *self.term.write().unwrap();
         if new_term < curr_term {
-            let error_message = format!("Cannot change term from {} to {}", curr_term, new_term);
+            let error_message = format!("Cannot change term from {} to {}\n", curr_term, new_term);
             stderr().write(error_message.as_bytes());
             return Err(error_message);
         }
@@ -55,20 +55,20 @@ impl ElectionState {
         curr_state = CANDIDATE;
         self.advance_term(curr_term + 1);
         self.reset_election_time();
-        stderr().write(format!("Becoming candidate at term {}", (curr_term.clone() + 1)).as_ref());
+        stderr().write(format!("Becoming candidate at term {}\n", (curr_term.clone() + 1)).as_ref());
     }
 
     fn become_follower(&mut self) {
         let mut curr_state = *self.curr_state.write().unwrap();
         let curr_term = self.term.read().unwrap();
-        stderr().write(format!("Becoming follower at term {}", curr_term).as_ref());
+        stderr().write(format!("Becoming follower at term {}\n", curr_term).as_ref());
         curr_state = FOLLOWER;
     }
 
     fn become_leader(&mut self) {
         let mut curr_state = *self.curr_state.write().unwrap();
         let curr_term = self.term.read().unwrap();
-        stderr().write(format!("Becoming leader at term {}", curr_term).as_ref());
+        stderr().write(format!("Becoming leader at term {}\n", curr_term).as_ref());
         curr_state = LEADER;
     }
 }

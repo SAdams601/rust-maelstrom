@@ -7,11 +7,13 @@ use std::collections::HashMap;
 use shared_lib::error::{key_does_not_exist, DefiniteError, precondition_failed};
 use std::io::{stderr, Write};
 use crate::election_state::ElectionState;
+use crate::log::Log;
 use std::thread;
 
 pub struct RaftState {
     node_state : NodeState,
     values : Mutex<HashMap<i32, i32>>,
+    log: RwLock<Option<Log>>
 }
 
 impl RaftState {
@@ -19,6 +21,7 @@ impl RaftState {
         RaftState {
             node_state: NodeState::init(response_channel),
             values : Mutex::new(HashMap::new()),
+            log: RwLock::new(None)
         }
     }
 
@@ -45,6 +48,11 @@ impl RaftState {
             map.insert(key, to);
             return Ok(())
         })
+    }
+
+    pub fn init_log(&self, node_id: String) {
+        let mut log = self.log.write().unwrap();
+        log.replace(Log::init(node_id));
     }
 }
 

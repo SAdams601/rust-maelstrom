@@ -9,7 +9,9 @@ use std::{
 use json::{JsonValue, object, stringify};
 use shared_lib::error::DefiniteError;
 use shared_lib::node_state::NodeState;
+use shared_lib::rpc::{retry_rpc, send_rpc};
 use crate::states::{kv_thunk::KVValue, maelstrom_node_state::MaelstromState, serializable_map::SerializableMap, thunk::Thunk};
+use std::borrow::{Borrow, BorrowMut};
 
 pub struct LinKvService {
     state: &'static MaelstromState,
@@ -36,22 +38,22 @@ impl LinKvService {
 
     pub fn update_root(&self) {
         let mut root = self.root.lock().unwrap();
-        let jv = &self.retry_rpc(object! {type: "read", key: "root"})["value"];
-        *root = Thunk::init(jv.to_string(), None, true);
+        let jv = retry_rpc(self.state, object! {type: "read", key: "root"}.borrow_mut());
+        *root = Thunk::init(jv["value"].to_string(), None, true);
     }
 
     pub fn init_root(&self) -> Thunk<SerializableMap> {
         let map = SerializableMap::init();
         let thunk = Thunk::init(self.state.next_thunk_id(), Some(map), false);
         thunk.save(self);
-        self.send_rpc(&mut object! {type: "write", key: "root", value: thunk.id.clone()});
+        send_rpc(self.state, &mut object! {type: "write", key: "root", value: thunk.id.clone()});
         let mut root = self.root.lock().unwrap();
         *root = thunk.clone();
         thunk
     }
 
     pub fn cas_root(&self, original_id: String, new_id: String) -> Result<(), DefiniteError> {
-        let response = self.send_rpc(
+        let response = send_rpc(self.state,
             &mut object! {type: "cas", key: "root", from: original_id.clone(), to: new_id, create_if_not_exists: true},
         );
         if response["body"]["type"].to_string() != "cas_ok" {
@@ -76,7 +78,7 @@ impl LinKvService {
             );
             return value.clone();
         }
-        let json = self.retry_rpc(object! {type: "read", key: thunk.id.clone()})["value"].clone();
+        let json = retry_rpc(self.state, object! {type: "read", key: thunk.id.clone()}.borrow_mut())["value"].clone();
         cache.insert(thunk.id.clone(), json.clone());
         json
     }
@@ -86,31 +88,10 @@ impl LinKvService {
         let mut cache = self.cache.lock().unwrap();
         cache.insert(thunk.id.clone(), thunk_json.clone());
         let mut request = object! {type: "write", key: thunk.id.clone(), value: thunk_json};
-        self.send_rpc(&mut request)
+        send_rpc(self.state, &mut request)
     }
 
     pub fn new_id(&self) -> String {
         self.state.next_thunk_id()
-    }
-
-    fn retry_rpc(&self, mut request_body: JsonValue) -> JsonValue {
-        while let rpc_response = self.send_rpc(&mut request_body) {
-            if rpc_response["body"]["type"] != "error" {
-                return rpc_response["body"].clone();
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-        JsonValue::from("Should not be here!")
-    }
-
-    fn send_rpc(&self, request_body: &mut JsonValue) -> JsonValue {
-        let msg_id = self.state.next_msg_id();
-        request_body["msg_id"] = JsonValue::from(msg_id);
-        let request =
-            object! {dest: "lin-kv", src: self.state.node_id(), body: request_body.clone()};
-        let (sender, receiver) = sync_channel(1);
-        self.state.add_callback(msg_id, sender);
-        self.state.get_channel().send(stringify(request));
-        receiver.recv_timeout(Duration::from_millis(5000)).unwrap()
     }
 }

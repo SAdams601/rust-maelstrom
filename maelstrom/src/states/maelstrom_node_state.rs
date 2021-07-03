@@ -6,14 +6,14 @@ use std::{
     collections::HashMap,
     sync::{mpsc::SyncSender, Mutex, RwLock},
 };
-use shared_lib::{node_state::NodeState, message_utils::get_in_response_to};
+use shared_lib::{node_state::NodeState};
 use std::sync::RwLockWriteGuard;
 use std::ops::Deref;
 
 pub struct MaelstromState {
     node_state : NodeState,
     neighbors: RwLock<Vec<String>>,
-    callbacks: RwLock<HashMap<i32, SyncSender<JsonValue>>>,
+
     counters: RwLock<PnCounter>,
     id_gen: RwLock<Option<IdGenerator>>,
 }
@@ -23,7 +23,6 @@ impl MaelstromState {
         MaelstromState {
             node_state: NodeState::init(response_channel),
             neighbors: RwLock::new(Vec::new()),
-            callbacks: RwLock::new(HashMap::new()),
             counters: RwLock::new(PnCounter::init()),
             id_gen: RwLock::new(None),
         }
@@ -61,18 +60,6 @@ impl MaelstromState {
     pub fn merge_messages(&self, received_values: PnCounter) {
         let mut counters = self.counters.write().unwrap();
         counters.merge(received_values);
-    }
-
-    pub fn check_for_callback(&self, message: &JsonValue) -> Option<SyncSender<JsonValue>> {
-        let in_response_to = get_in_response_to(message);
-        match in_response_to {
-            Some(id) => self.callbacks.write().unwrap().remove(&id),
-            None => None,
-        }
-    }
-
-    pub fn add_callback(&self, message_id: i32, channel: SyncSender<JsonValue>) {
-        self.callbacks.write().unwrap().insert(message_id, channel);
     }
 }
 

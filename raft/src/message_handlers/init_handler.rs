@@ -18,7 +18,9 @@ impl MessageHandler<RaftState> for InitHandler {
         curr_state: &RaftState,
     ) -> Result<JsonValue, MaelstromError> {
         let body = get_body(message);
-        curr_state.set_node_id(body["node_id"].to_string());
+        let node_id = body["node_id"].to_string();
+        curr_state.set_node_id(node_id.clone());
+        curr_state.init_log(node_id.clone());
         curr_state.set_other_node_ids(
             body["node_ids"]
                 .members()
