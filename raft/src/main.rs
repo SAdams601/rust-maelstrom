@@ -28,6 +28,7 @@ lazy_static! {
         map.insert("read".to_string(), Box::new(ReadHandler {}));
         map.insert("cas".to_string(), Box::new(CasHandler {}));
         map.insert("write".to_string(), Box::new(WriteHandler {}));
+        //map.insert("request_vote".to_string(), Box::new(RequestVoteHandler::init))
         map
     };
 
@@ -39,6 +40,6 @@ lazy_static! {
 }
 
 fn main() {
-    election_state::election_loop();
+    election_state::election_loop(&*NODE_STATE);
     read_respond_loop(&*NODE_STATE, &*MESSAGE_HANDLERS);
 }

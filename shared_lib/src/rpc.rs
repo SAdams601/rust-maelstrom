@@ -43,7 +43,7 @@ pub fn broadcast_rpc(state: &NodeState, request_body: &mut JsonValue) -> Vec<Jso
     }
     let mut received = 0;
     while received < receivers.len() {
-        for receiver in receivers {
+        for receiver in &receivers {
             let result = receiver.try_recv();
             match result {
                 Ok(msg) => {

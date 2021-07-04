@@ -9,8 +9,8 @@ pub enum Op {
 
 #[derive(Copy,Clone, Debug)]
 pub struct Entry {
-    term : i32,
-    op: Option<Op>
+    pub term : i32,
+    pub op: Option<Op>
 }
 
 pub struct Log {

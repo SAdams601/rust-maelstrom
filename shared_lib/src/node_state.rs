@@ -38,6 +38,10 @@ impl NodeState {
         self.node_id.read().unwrap().as_ref().unwrap().clone()
     }
 
+    pub fn is_initialized(&self) -> bool {
+        self.node_id.read().unwrap().is_some()
+    }
+
     pub fn set_node_id(&self, my_id: String) {
         let mut id = self.node_id.write().unwrap();
         id.replace(my_id);
