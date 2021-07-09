@@ -1,10 +1,11 @@
 use crate::node_state::NodeState;
 use crate::stdio::write_log;
 use json::{JsonValue, stringify, object};
-use std::sync::mpsc::{sync_channel, TryRecvError};
+use std::sync::mpsc::{sync_channel, TryRecvError, Receiver};
 use std::time::Duration;
 use std::thread;
 use std::borrow::Borrow;
+use std::thread::JoinHandle;
 
 pub fn send_rpc(state: &NodeState, request_body: &mut JsonValue) -> JsonValue {
     let msg_id = state.next_msg_id();
@@ -27,40 +28,18 @@ pub fn retry_rpc(state: &NodeState, request_body: &mut JsonValue) -> JsonValue {
     JsonValue::from("Should not be here!")
 }
 
-pub fn broadcast_rpc(state: &NodeState, request_body: &mut JsonValue) -> Vec<JsonValue> {
+pub fn broadcast_rpc(state: &NodeState, request_body: &mut JsonValue) -> Vec<Receiver<JsonValue>> {
     let other_nodes = state.other_nodes();
     let mut receivers = Vec::new();
-    let mut responses = Vec::new();
     for node in other_nodes {
         let msg_id = state.next_msg_id();
         request_body["msg_id"] = JsonValue::from(msg_id);
         let request =
-            object! {dest: "lin-kv", src: state.node_id(), body: request_body.clone()};
+            object! {dest: node, src: state.node_id(), body: request_body.clone()};
         let (sender, receiver) = sync_channel(1);
         state.add_callback(msg_id, sender);
         state.get_channel().send(stringify(request));
         receivers.push(receiver);
     }
-    let mut received = 0;
-    while received < receivers.len() {
-        for receiver in &receivers {
-            let result = receiver.try_recv();
-            match result {
-                Ok(msg) => {
-                    responses.push(msg);
-                    received = received + 1;
-                }
-                Err(error) => {
-                    match error {
-                        TryRecvError::Empty => (),
-                        TryRecvError::Disconnected => {
-                            write_log("Channel disconnected before response received during broadcast.");
-                            received = received + 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    responses
+    receivers
 }

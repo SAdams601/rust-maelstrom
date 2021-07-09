@@ -4,14 +4,16 @@ use std::thread;
 use std::sync::{RwLock, Arc, LockResult, RwLockReadGuard, PoisonError};
 use rand::{Rng, thread_rng, random, RngCore};
 use std::io::{stderr, Write};
-use std::ops::Deref;
+use std::ops::{Deref};
 use std::collections::HashSet;
 use json::{object, JsonValue};
 use shared_lib::{node_state::NodeState, rpc::broadcast_rpc};
 use crate::election_state::State::{FOLLOWER, LEADER, CANDIDATE};
 use crate::raft_node_state::RaftState;
 use std::borrow::Borrow;
-use std::sync::mpsc::sync_channel;
+use std::sync::mpsc::{sync_channel, SyncSender, TryIter, TryRecvError, Receiver};
+use shared_lib::stdio::write_log;
+use crate::election_state::RpcCall::{MaybeStepDown, VoteGranted};
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum State {
@@ -25,18 +27,19 @@ pub struct ElectionState<'a> {
     term: RwLock<i32>,
     curr_state: RwLock<State>,
     node_state: &'a RaftState,
-    voted_for: RwLock<Option<String>>
+    voted_for: RwLock<Option<String>>,
+    sender: SyncSender<RpcCall>
 }
 
-
 impl ElectionState<'_> {
-    fn init(state: &RaftState) -> ElectionState {
+    fn init(state: &RaftState, sender: SyncSender<RpcCall>) -> ElectionState {
         ElectionState {
             next_election: RwLock::new(Instant::now()),
             term: RwLock::new(0),
             curr_state: RwLock::new(FOLLOWER),
             node_state: state,
-            voted_for: RwLock::new(None)
+            voted_for: RwLock::new(None),
+            sender: sender
         }
     }
 
@@ -86,29 +89,19 @@ impl ElectionState<'_> {
     }
 
     fn request_votes(&mut self) {
-        let mut votes = HashSet::new();
         let candidate_id = self.node_state.node_id();
-        votes.insert(candidate_id.clone());
         let term = self.term.read().unwrap().clone();
-        let mut request = object! {"type": "request_vote",
+        let mut request = object! {type: "request_vote",
                                              term: term,
-                                             candidate_id: candidate_id,
+                                             candidate_id: candidate_id.clone(),
                                              last_log_index: self.node_state.log_size(),
                                              last_log_term: self.node_state.log_last().term
                                             };
-        let responses = broadcast_rpc(self.node_state, &mut request);
-        for response in responses {
-            let body = &response["body"];
-            if self.maybe_step_down(body["term"].as_i32().unwrap()) {
-               return;
-            }
-            if vote_granted(*self.curr_state.read().unwrap(), term, body) {
-                votes.insert(response["src"].to_string());
-            }
-        }
+        let receivers = broadcast_rpc(self.node_state, &mut request);
+        count_votes(candidate_id.clone(), self.sender.clone(), receivers);
     }
 
-    pub fn maybe_step_down(&self, remote_term: i32) -> bool {
+    fn maybe_step_down(&self, remote_term: i32) -> bool {
         let term = self.term.write().unwrap();
         if *term < remote_term {
             drop(term);
@@ -119,36 +112,59 @@ impl ElectionState<'_> {
         false
     }
 
-    pub fn current_term(&self) -> i32 {
+    fn current_term(&self) -> i32 {
         *self.term.read().unwrap()
     }
 
-    pub fn voted_for(&self) -> Option<String> {
+    fn voted_for(&self) -> Option<String> {
         match self.voted_for.read().unwrap().as_ref() {
             None => None,
             Some(str) => Some(str.clone())
         }
     }
 
-    pub fn vote_for(&self, id: String) {
+    fn vote_for(&self, id: String) {
         *self.voted_for.write().unwrap() = Some(id);
+    }
+
+    fn vote_granted(&self, body: JsonValue) -> bool {
+        let curr_state = *self.curr_state.read().unwrap();
+        let curr_term = self.current_term();
+        curr_state == CANDIDATE &&
+            curr_term == body["term"].as_i32().unwrap() &&
+            body["vote_granted"].as_bool().unwrap()
+    }
+
+    pub fn handle_rpc_calls(&self, calls: TryIter<RpcCall>) {
+        for call in calls {
+            match call{
+                RpcCall::CurrentTerm(sender) => { sender.send(self.current_term()); },
+                RpcCall::VotedFor(sender) => { sender.send(self.voted_for()); },
+                RpcCall::MaybeStepDown(remote_term, sender) => { sender.send(self.maybe_step_down(remote_term)); },
+                RpcCall::VoteFor(id) => { self.vote_for(id); }
+                RpcCall::VoteGranted(body, sender) => { sender.send(self.vote_granted(body)); }
+            }
+        }
     }
 }
 
-fn vote_granted(curr_state: State, curr_term: i32, body: &JsonValue) -> bool {
-    curr_state == CANDIDATE &&
-        curr_term == body["term"].as_i32().unwrap() &&
-        body["vote_granted"].as_bool().unwrap()
+pub enum RpcCall {
+    CurrentTerm(SyncSender<i32>),
+    VotedFor(SyncSender<Option<String>>),
+    MaybeStepDown(i32, SyncSender<bool>),
+    VoteGranted(JsonValue, SyncSender<bool>),
+    VoteFor(String)
 }
 
 
-
-
-pub fn election_loop(node_state: &'static RaftState) {
+pub fn election_loop(node_state: &'static RaftState) -> SyncSender<RpcCall> {
     let (sender, receiver) = sync_channel(1);
+    let result = sender.clone();
     thread::spawn(move || {
-        let mut state = ElectionState::init(node_state);
+        let mut state = ElectionState::init(node_state, sender.clone());
         loop {
+            let messages = receiver.try_iter();
+            state.handle_rpc_calls(messages);
             let next_election = *state.next_election.read().unwrap();
             if next_election < Instant::now() {
                 let current_state = *state.curr_state.read().unwrap();
@@ -158,7 +174,45 @@ pub fn election_loop(node_state: &'static RaftState) {
                 state.reset_election_time();
             }
             let rand = rand::thread_rng().next_u64() % 20;
-            thread::sleep(Duration::from_millis(100 + rand))
+            thread::sleep(Duration::from_millis(90 + rand))
         }});
+    result
 }
 
+fn count_votes(candidate_id: String, state_sender: SyncSender<RpcCall>, receivers: Vec<Receiver<JsonValue>>) {
+    thread::spawn(move || {
+        let mut votes = HashSet::new();
+        votes.insert(candidate_id);
+        let mut received = 0;
+        let total_votes = receivers.len();
+        while received < total_votes {
+            for receiver in &receivers {
+                let result = receiver.try_recv();
+                match result {
+                    Ok(msg) => {
+                        let body = &msg["body"];
+                        let (sender,receiver) = sync_channel(1);
+                        state_sender.send(MaybeStepDown(body["term"].as_i32().unwrap(), sender));
+                        if receiver.recv().unwrap() {
+                            return;
+                        }
+                        let (sender, receiver) = sync_channel(1);
+                        state_sender.send(VoteGranted(body.clone(), sender));
+                        if receiver.recv().unwrap() {
+                            votes.insert(msg["src"].to_string());
+                        }
+                    }
+                    Err(error) => {
+                        match error {
+                            TryRecvError::Empty => (),
+                            TryRecvError::Disconnected => {
+                                write_log("Channel disconnected before response received during broadcast.");
+                                received = received + 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+}

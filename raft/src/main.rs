@@ -7,7 +7,7 @@ use raft_node_state::RaftState;
 use message_handlers::init_handler::InitHandler;
 use lazy_static::lazy_static;
 use std::io::{stderr, stdout, BufRead, Write};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::SyncSender;
 use std::{io, thread};
 use shared_lib::{read_respond::read_respond_loop, message_handler::MessageHandler, stdio::while_reply};
 use std::{collections::HashMap, io::prelude::*, sync::mpsc::sync_channel};
@@ -16,7 +16,8 @@ use json::JsonValue;
 use crate::message_handlers::read_handler::ReadHandler;
 use crate::message_handlers::cas_handler::CasHandler;
 use crate::message_handlers::write_handler::WriteHandler;
-use crate::election_state::ElectionState;
+use crate::message_handlers::request_vote_handler::RequestVoteHandler;
+use crate::election_state::{ElectionState, RpcCall};
 
 lazy_static! {
     static ref MESSAGE_HANDLERS: HashMap<String, Box<dyn MessageHandler<RaftState>>> = {
@@ -28,7 +29,7 @@ lazy_static! {
         map.insert("read".to_string(), Box::new(ReadHandler {}));
         map.insert("cas".to_string(), Box::new(CasHandler {}));
         map.insert("write".to_string(), Box::new(WriteHandler {}));
-        //map.insert("request_vote".to_string(), Box::new(RequestVoteHandler::init))
+        map.insert("request_vote".to_string(), Box::new(RequestVoteHandler::init(ELECTION_STATE_SENDER.clone())));
         map
     };
 
@@ -37,9 +38,10 @@ lazy_static! {
         thread::spawn(|| while_reply(reply_receiver));
         RaftState::init(reply_sender)
     };
+
+    static ref ELECTION_STATE_SENDER: SyncSender<RpcCall> = {election_state::election_loop(&*NODE_STATE)};
 }
 
 fn main() {
-    election_state::election_loop(&*NODE_STATE);
     read_respond_loop(&*NODE_STATE, &*MESSAGE_HANDLERS);
 }
