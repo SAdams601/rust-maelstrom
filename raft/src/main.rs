@@ -9,6 +9,7 @@ use lazy_static::lazy_static;
 use std::io::{stderr, stdout, BufRead, Write};
 use std::sync::mpsc::SyncSender;
 use std::{io, thread};
+use std::sync::Arc;
 use shared_lib::{read_respond::read_respond_loop, message_handler::MessageHandler, stdio::while_reply};
 use std::{collections::HashMap, io::prelude::*, sync::mpsc::sync_channel};
 use shared_lib::message_utils::get_message_type;
@@ -29,7 +30,7 @@ lazy_static! {
         map.insert("read".to_string(), Box::new(ReadHandler {}));
         map.insert("cas".to_string(), Box::new(CasHandler {}));
         map.insert("write".to_string(), Box::new(WriteHandler {}));
-        map.insert("request_vote".to_string(), Box::new(RequestVoteHandler::init(ELECTION_STATE_SENDER.clone())));
+        map.insert("request_vote".to_string(), Box::new(RequestVoteHandler::init(Arc::clone(&ELECTION_STATE))));
         map
     };
 
@@ -39,7 +40,7 @@ lazy_static! {
         RaftState::init(reply_sender)
     };
 
-    static ref ELECTION_STATE_SENDER: SyncSender<RpcCall> = {election_state::election_loop(&*NODE_STATE)};
+    static ref ELECTION_STATE: Arc<ElectionState<'static>> = {election_state::start(&*NODE_STATE)};
 }
 
 fn main() {
