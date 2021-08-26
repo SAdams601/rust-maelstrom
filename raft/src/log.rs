@@ -41,6 +41,14 @@ impl Log {
 
     pub fn append(&mut self, new_entries: &mut Vec<Entry>) {
         self.entries.append(new_entries);
-        stderr().write(format!("{:?}", self.entries).as_bytes());
+        stderr().write(format!("{:?}\n", self.entries).as_bytes());
+    }
+
+    pub fn upto_index(&self, count: usize) -> Vec<Entry> {
+        let mut vec = Vec::new();
+        for i in 0..count {
+            vec.push(*self.entries.get(i).unwrap());
+        }
+        vec
     }
 }

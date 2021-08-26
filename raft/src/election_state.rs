@@ -5,16 +5,17 @@ use std::sync::{RwLock, Arc, LockResult, RwLockReadGuard, PoisonError};
 use rand::{Rng, thread_rng, random, RngCore};
 use std::io::{stderr, Write};
 use std::ops::{Deref};
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use json::{object, JsonValue};
-use shared_lib::{node_state::NodeState, rpc::broadcast_rpc};
+use shared_lib::{node_state::NodeState, rpc::{broadcast_rpc, send_rpc}};
 use crate::election_state::State::{FOLLOWER, LEADER, CANDIDATE};
 use crate::raft_node_state::RaftState;
 use std::borrow::Borrow;
 use lazy_static::lazy_static;
 use std::sync::mpsc::{sync_channel, SyncSender, TryIter, TryRecvError, Receiver, channel};
 use shared_lib::stdio::write_log;
-use crate::election_state::RpcCall::{MaybeStepDown, VoteGranted, NextElection, ResetElectionTime, ValidateElection, ResetStepDownTime, StepDownDeadline};
+use shared_lib::message_utils::get_body;
+use std::cmp::max;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum State {
@@ -26,23 +27,29 @@ pub enum State {
 pub struct ElectionState<'a> {
     next_election: RwLock<Instant>,
     step_down: RwLock<Instant>,
+    replication_time: RwLock<Instant>,
     term: RwLock<i32>,
     curr_state: RwLock<State>,
     node_state: &'a RaftState,
     voted_for: RwLock<Option<String>>,
-    sender: SyncSender<RpcCall>,
+    commit_index: RwLock<usize>,
+    next_index: RwLock<HashMap<String, usize>>,
+    match_index: RwLock<HashMap<String, usize>>
 }
 
 impl ElectionState<'_> {
-    fn init(state: &RaftState, sender: SyncSender<RpcCall>) -> ElectionState {
+    fn init(state: &RaftState) -> ElectionState {
         ElectionState {
             next_election: RwLock::new(Instant::now()),
             step_down: RwLock::new(Instant::now()),
+            replication_time: RwLock::new(Instant::now()),
             term: RwLock::new(0),
             curr_state: RwLock::new(FOLLOWER),
             node_state: state,
             voted_for: RwLock::new(None),
-            sender,
+            commit_index: RwLock::new(0),
+            next_index: RwLock::new(HashMap::new()),
+            match_index: RwLock::new(HashMap::new())
         }
     }
 
@@ -75,7 +82,7 @@ impl ElectionState<'_> {
         Ok(())
     }
 
-    fn become_candidate(&self) {
+    fn become_candidate(&self) -> Vec<Receiver<JsonValue>> {
         let mut curr_state = self.curr_state.write().unwrap();
         let curr_term = *self.term.read().unwrap();
         *curr_state = CANDIDATE;
@@ -84,13 +91,14 @@ impl ElectionState<'_> {
         self.reset_step_down_time();
         *self.voted_for.write().unwrap() = Some(self.node_state.node_id());
         write_log(format!("Becoming candidate at term {}\n", (curr_term.clone() + 1)).as_ref());
-        self.request_votes();
+        self.request_votes()
     }
 
     fn become_follower(&self) {
         let mut curr_state = self.curr_state.write().unwrap();
         let curr_term = self.term.read().unwrap();
         write_log(format!("Becoming follower at term {}\n", curr_term).as_ref());
+        self.clear_indices();
         *curr_state = FOLLOWER;
     }
 
@@ -102,11 +110,18 @@ impl ElectionState<'_> {
             return;
         }
         self.reset_step_down_time();
+        let mut next_idx = self.next_index.write().unwrap();
+        let mut match_idx = self.match_index.write().unwrap();
+        let current_log_size = self.node_state.log_size();
+        for other_node in self.node_state.other_nodes() {
+            next_idx.insert(other_node.clone(), current_log_size + 1);
+            match_idx.insert(other_node.clone(), 0);
+        }
         write_log(format!("Becoming leader at term {}\n", curr_term).as_ref());
         *curr_state = LEADER;
     }
 
-    fn request_votes(&self) {
+    fn request_votes(&self) -> Vec<Receiver<JsonValue>> {
         let candidate_id = self.node_state.node_id();
         let term = self.term.read().unwrap().clone();
         let mut request = object! {type: "request_vote",
@@ -115,8 +130,7 @@ impl ElectionState<'_> {
                                              last_log_index: self.node_state.log_size(),
                                              last_log_term: self.node_state.log_last().term
                                             };
-        let receivers = broadcast_rpc(self.node_state, &mut request);
-        count_votes(candidate_id.clone(), self.sender.clone(), receivers);
+        broadcast_rpc(self.node_state, &mut request)
     }
 
     pub(crate) fn maybe_step_down(&self, remote_term: i32) -> bool {
@@ -140,6 +154,13 @@ impl ElectionState<'_> {
         *self.next_election.read().unwrap()
     }
 
+    fn clear_indices(&self) {
+        let mut match_idx = self.match_index.write().unwrap();
+        match_idx.clear();
+        let mut next_idx = self.next_index.write().unwrap();
+        next_idx.clear();
+    }
+
     pub(crate) fn voted_for(&self) -> Option<String> {
         match self.voted_for.read().unwrap().as_ref() {
             None => None,
@@ -149,6 +170,24 @@ impl ElectionState<'_> {
 
     pub(crate) fn vote_for(&self, id: String) {
         *self.voted_for.write().unwrap() = Some(id);
+    }
+
+    pub fn next_index_of_node(&self, node_id: &str) -> usize {
+        *self.next_index.read().unwrap().get(&node_id).unwrap_or(&0)
+    }
+
+    pub fn match_index_of_node(&self, node_id: &str) -> usize {
+        *self.match_index.read().unwrap().get(&node_id).unwrap_or(&0)
+    }
+
+    pub fn set_node_next_index(&self, node_id: &str, i: usize) {
+        let mut map = self.next_index.write().unwrap();
+        map.insert(node_id.into_string(), i);
+    }
+
+    pub fn set_node_match_index(&self, node_id: &str, i: usize) {
+        let mut map = self.match_index.write().unwrap();
+        map.insert(node_id.into_string(), i);
     }
 
     fn vote_granted(&self, body: JsonValue) -> bool {
@@ -161,7 +200,7 @@ impl ElectionState<'_> {
         result
     }
 
-    fn current_state(&self) -> State {
+    pub(crate) fn current_state(&self) -> State {
         (*self.curr_state.read().unwrap()).clone()
     }
 
@@ -176,58 +215,19 @@ impl ElectionState<'_> {
         *self.step_down.read().unwrap()
     }
 
-    pub fn handle_rpc_calls(&self, call: RpcCall) {
-        match call {
-            RpcCall::CurrentTerm(sender) => { sender.send(self.current_term()); }
-            RpcCall::VotedFor(sender) => { sender.send(self.voted_for()); }
-            RpcCall::MaybeStepDown(remote_term, sender) => { sender.send(self.maybe_step_down(remote_term)); }
-            RpcCall::VoteFor(id) => { self.vote_for(id); }
-            RpcCall::VoteGranted(body, sender) => { sender.send(self.vote_granted(body)); }
-            RpcCall::ResetElectionTime => { self.reset_election_time(); }
-            RpcCall::ResetStepDownTime => { self.reset_step_down_time(); }
-            RpcCall::NextElection(sender) => { sender.send(self.next_election_time()); }
-            RpcCall::ValidateElection(votes) => { self.validate_election(votes) }
-            RpcCall::StepDownDeadline(sender) => { sender.send(self.step_down_time()); }
-        }
+    pub fn candidate_id(&self) -> String {
+        self.node_state.node_id()
     }
 }
 
-pub enum RpcCall {
-    CurrentTerm(SyncSender<i32>),
-    ResetElectionTime,
-    ResetStepDownTime,
-    StepDownDeadline(SyncSender<Instant>),
-    NextElection(SyncSender<Instant>),
-    VotedFor(SyncSender<Option<String>>),
-    MaybeStepDown(i32, SyncSender<bool>),
-    VoteGranted(JsonValue, SyncSender<bool>),
-    VoteFor(String),
-    ValidateElection(HashSet<String>),
-}
-
-fn rpc_loop(node_state: &'static RaftState, sender: SyncSender<RpcCall>, receiver: Receiver<RpcCall>) {
-    thread::spawn(move || {
-        let state = ElectionState::init(node_state, sender);
-        loop {
-            let call = receiver.recv().unwrap();
-            state.handle_rpc_calls(call);
-        }
-    });
-}
 
 pub fn start(node_state: &'static RaftState) -> Arc<ElectionState> {
-    let (sender, receiver) = sync_channel(50);
-    let thread_copy = sender.clone();
-    let state = ElectionState::init(node_state, thread_copy);
+    let state = ElectionState::init(node_state);
     let state_arc = Arc::new(state);
     let result = Arc::clone(&state_arc);
     thread::spawn(move || {
         start_elections(node_state, &state_arc);
         step_down_loop(&state_arc);
-        loop {
-            let call = receiver.recv().unwrap();
-            state_arc.handle_rpc_calls(call);
-        }
     });
     result
 }
@@ -253,7 +253,8 @@ pub fn election_loop(state_arc: &Arc<ElectionState<'static>>) {
         let next_election = election_state.next_election_time();
         let current_state = election_state.current_state();
         if next_election < Instant::now() && current_state != LEADER {
-            election_state.become_candidate();
+            let vote_channels = election_state.become_candidate();
+            count_votes(Arc::clone(state_arc), vote_channels);
         }
         election_state.reset_election_time();
     }
@@ -273,12 +274,12 @@ pub fn step_down_loop(state_arc: &Arc<ElectionState<'static>>) {
     });
 }
 
-fn count_votes(candidate_id: String, state_sender: SyncSender<RpcCall>, receivers: Vec<Receiver<JsonValue>>) {
+fn count_votes(election_state: Arc<ElectionState<'static>>, receivers: Vec<Receiver<JsonValue>>) {
     thread::spawn(move || {
-        state_sender.send(ResetStepDownTime);
+        election_state.reset_step_down_time();
         let mut votes = HashSet::new();
         let mut have_voted: Vec<usize> = Vec::new();
-        votes.insert(candidate_id);
+        votes.insert(election_state.candidate_id());
         let mut received = 0;
         let total_votes = receivers.len();
         while received < total_votes {
@@ -288,14 +289,12 @@ fn count_votes(candidate_id: String, state_sender: SyncSender<RpcCall>, receiver
                     match result {
                         Ok(msg) => {
                             let body = &msg["body"];
-                            let (sender, receiver) = sync_channel(1);
-                            state_sender.send(MaybeStepDown(body["term"].as_i32().unwrap(), sender));
-                            if receiver.recv().unwrap() {
+                            let stepping_down = election_state.maybe_step_down(body["term"].as_i32().unwrap());
+                            if stepping_down {
                                 return;
                             }
-                            let (sender, receiver) = sync_channel(1);
-                            state_sender.send(VoteGranted(body.clone(), sender));
-                            if receiver.recv().unwrap() {
+                            let vote_granted = election_state.vote_granted(body.clone());
+                            if vote_granted {
                                 votes.insert(msg["src"].to_string());
                                 have_voted.push(i);
                                 received = received + 1;
@@ -316,6 +315,57 @@ fn count_votes(candidate_id: String, state_sender: SyncSender<RpcCall>, receiver
             }
         }
         write_log(format!("Have votes: {:?}", votes).as_str());
-        state_sender.send(ValidateElection(votes));
+        election_state.validate_election(votes);
+    });
+}
+
+fn replicate_log(election_state: Arc<ElectionState<'static>>) {
+    thread::spawn(move || {
+        let mut last_replication = Instant::now();
+        let min_replication_interval = Duration::from_millis(50);
+        let heartbeat_interval = Duration::from_secs(1);
+        loop {
+            if election_state.current_state() == LEADER {
+                let time_since_replication = last_replication - Instant::now();
+                let mut replicated = false;
+                if time_since_replication > min_replication_interval {
+                    for other_node in election_state.node_state.other_nodes() {
+                        let index = election_state.next_index_of_node(&other_node);
+                        let entries = election_state.node_state.log_from_index(*index);
+                        if entries.len() > 0 || heartbeat_interval < time_since_replication {
+                            write_log(format!("Replicating {} to {}", index, other_node).as_str());
+                            replicated = true;
+                            let commit_index = *election_state.commit_index.read().unwrap();
+                            let &mut message = object! {
+                                type: "append_entries",
+                                term: election_state.current_term(),
+                                leader_id: election_state.node_state.node_id(),
+                                prev_log_index: index - 1,
+                                prev_log_term: election_state.node_state.log_from_index(index - 1),
+                                entries: entries,
+                                leader_commit: commit_index
+                            };
+                            let response = send_rpc(election_state.node_state, message);
+                            let response_body = get_body(&response);
+                            let response_term = response_body["term"].as_i32().unwrap();
+                            election_state.maybe_step_down(response_term);
+                            if election_state.current_state() == LEADER && response_term == election_state.current_term() {
+                                election_state.reset_step_down_time();
+                                if response_body["success"].as_bool().unwrap() {
+                                    election_state.set_node_next_index(&other_node, max(index + entries.len(), election_state.next_index_of_node(&other_node)));
+                                    election_state.set_node_match_index(&other_node, max(index + entries.len() - 1, election_state.match_index_of_node(&other_node)));
+                                } else {
+                                    election_state.set_node_next_index(&other_node, election_state.next_index_of_node(&other_node) - 1);
+                                }
+                            }
+                        }
+                    }
+                }
+                if replicated {
+                    last_replication = Instant::now();
+                }
+            }
+            thread::sleep(min_replication_interval);
+        }
     });
 }

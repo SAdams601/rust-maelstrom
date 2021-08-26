@@ -4,9 +4,8 @@ use json::{JsonValue, object};
 use shared_lib::error::MaelstromError;
 use shared_lib::message_utils::get_body;
 use shared_lib::stdio::write_log;
-use crate::election_state::{RpcCall, ElectionState};
+use crate::election_state::ElectionState;
 use std::sync::mpsc::{SyncSender, sync_channel};
-use crate::election_state::RpcCall::{CurrentTerm, VotedFor, MaybeStepDown, VoteFor};
 use std::sync::Arc;
 
 pub struct RequestVoteHandler<'a> {

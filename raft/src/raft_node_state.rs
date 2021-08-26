@@ -6,21 +6,21 @@ use std::collections::HashMap;
 use shared_lib::error::{key_does_not_exist, DefiniteError, precondition_failed};
 use std::io::{stderr, Write};
 use crate::election_state::ElectionState;
-use crate::log::{Log, Entry};
+use crate::log::{Log, Entry, Op};
 use std::thread;
 
 pub struct RaftState {
-    node_state : NodeState,
-    values : Mutex<HashMap<i32, i32>>,
-    log: RwLock<Option<Log>>
+    node_state: NodeState,
+    values: Mutex<HashMap<i32, i32>>,
+    log: RwLock<Option<Log>>,
 }
 
 impl RaftState {
     pub fn init(response_channel: SyncSender<String>) -> RaftState {
         RaftState {
             node_state: NodeState::init(response_channel),
-            values : Mutex::new(HashMap::new()),
-            log: RwLock::new(None)
+            values: Mutex::new(HashMap::new()),
+            log: RwLock::new(None),
         }
     }
 
@@ -45,7 +45,7 @@ impl RaftState {
             }
             let mut map = self.values.lock().unwrap();
             map.insert(key, to);
-            return Ok(())
+            return Ok(());
         })
     }
 
@@ -61,6 +61,15 @@ impl RaftState {
         }
     }
 
+    pub fn append_single_entry(&self, op: Op, term: i32) {
+        let entry = Entry {op: Some(op), term };
+        let mut log_loc = self.log.write().unwrap();
+        log_loc.as_mut().map(|mut log| {
+            let mut vec = vec![entry];
+            log.append(&mut vec);
+        });
+    }
+
     pub fn majority(&self) -> i32 {
         (self.other_nodes().len() as i32 / 2) + 1
     }
@@ -68,6 +77,8 @@ impl RaftState {
     pub fn log_last(&self) -> Entry {
         self.log.read().unwrap().as_ref().unwrap().last()
     }
+
+    pub fn log_from_index(&self, i: usize) -> Vec<Entry> { self.log.read().unwrap().unwrap().upto_index(i) }
 }
 
 impl Deref for RaftState {
