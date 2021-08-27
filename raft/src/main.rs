@@ -19,6 +19,7 @@ use crate::message_handlers::cas_handler::CasHandler;
 use crate::message_handlers::write_handler::WriteHandler;
 use crate::message_handlers::request_vote_handler::RequestVoteHandler;
 use crate::election_state::ElectionState;
+use crate::message_handlers::append_entries_handler::AppendEntriesHandler;
 
 lazy_static! {
     static ref MESSAGE_HANDLERS: HashMap<String, Box<dyn MessageHandler<RaftState>>> = {
@@ -30,7 +31,8 @@ lazy_static! {
         map.insert("read".to_string(), Box::new(ReadHandler::init(ELECTION_STATE.clone())));
         map.insert("cas".to_string(), Box::new(CasHandler::init(ELECTION_STATE.clone())));
         map.insert("write".to_string(), Box::new(WriteHandler::init(ELECTION_STATE.clone())));
-        map.insert("request_vote".to_string(), Box::new(RequestVoteHandler::init(Arc::clone(&ELECTION_STATE))));
+        map.insert("request_vote".to_string(), Box::new(RequestVoteHandler::init(ELECTION_STATE.clone())));
+        map.insert("append_entries".to_string(), Box::new(AppendEntriesHandler::init(ELECTION_STATE.clone())));
         map
     };
 

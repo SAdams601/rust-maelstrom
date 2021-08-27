@@ -18,8 +18,7 @@ pub struct RaftState {
 impl RaftState {
     pub fn init(response_channel: SyncSender<String>) -> RaftState {
         RaftState {
-            node_state: NodeState::init(response_channel),
-            values: Mutex::new(HashMap::new()),
+            node_state: NodeState::init(response_channel),            values: Mutex::new(HashMap::new()),
             log: RwLock::new(None),
         }
     }
@@ -70,6 +69,21 @@ impl RaftState {
         });
     }
 
+    pub fn append_log_entries(&self, entries: &mut Vec<Entry>) {
+        self.log.write().unwrap().as_mut().map(|mut log| log.append(entries));
+
+    }
+
+    pub fn truncate_log(&self, len: usize) {
+        self.log.write().unwrap().as_mut().map(|mut log| log.truncate(len));
+    }
+
+    pub fn log_entry(&self, i: usize) -> Option<Entry> {
+        self.log.read().unwrap().as_ref().and_then(|log| {
+          Some(log.get(i))
+        })
+    }
+
     pub fn majority(&self) -> i32 {
         (self.other_nodes().len() as i32 / 2) + 1
     }
@@ -78,7 +92,7 @@ impl RaftState {
         self.log.read().unwrap().as_ref().unwrap().last()
     }
 
-    pub fn log_from_index(&self, i: usize) -> Vec<Entry> { self.log.read().unwrap().unwrap().upto_index(i) }
+    pub fn log_from_index(&self, i: usize) -> Vec<Entry> { self.log.read().unwrap().as_ref().and_then(|log| Some(log.upto_index(i))).unwrap_or(vec![]) }
 }
 
 impl Deref for RaftState {

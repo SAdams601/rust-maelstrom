@@ -53,12 +53,21 @@ impl ElectionState<'_> {
         }
     }
 
-    fn reset_election_time(&self) {
+    pub fn reset_election_time(&self) {
         let mut next_election = self.next_election.write().unwrap();
         let mut rng = rand::thread_rng();
         let rand: u64 = rng.gen_range(0..10);
         let standard_timeout = Duration::new(2, 0);
         *next_election = Instant::now() + (standard_timeout + Duration::from_secs(rand + 1))
+    }
+
+    pub fn commit_index(&self) -> usize {
+        *self.commit_index.read().unwrap()
+    }
+
+    pub fn set_commit_index(&self, i: usize) {
+        let mut index = self.commit_index.write().unwrap();
+        *index = i;
     }
 
     fn reset_step_down_time(&self) {
@@ -98,6 +107,7 @@ impl ElectionState<'_> {
         let mut curr_state = self.curr_state.write().unwrap();
         let curr_term = self.term.read().unwrap();
         write_log(format!("Becoming follower at term {}\n", curr_term).as_ref());
+        self.reset_election_time();
         self.clear_indices();
         *curr_state = FOLLOWER;
     }
@@ -173,21 +183,21 @@ impl ElectionState<'_> {
     }
 
     pub fn next_index_of_node(&self, node_id: &str) -> usize {
-        *self.next_index.read().unwrap().get(&node_id).unwrap_or(&0)
+        *self.next_index.read().unwrap().get(node_id).unwrap_or(&0)
     }
 
     pub fn match_index_of_node(&self, node_id: &str) -> usize {
-        *self.match_index.read().unwrap().get(&node_id).unwrap_or(&0)
+        *self.match_index.read().unwrap().get(node_id).unwrap_or(&0)
     }
 
     pub fn set_node_next_index(&self, node_id: &str, i: usize) {
         let mut map = self.next_index.write().unwrap();
-        map.insert(node_id.into_string(), i);
+        map.insert(node_id.to_string(), i);
     }
 
     pub fn set_node_match_index(&self, node_id: &str, i: usize) {
         let mut map = self.match_index.write().unwrap();
-        map.insert(node_id.into_string(), i);
+        map.insert(node_id.to_string(), i);
     }
 
     fn vote_granted(&self, body: JsonValue) -> bool {
@@ -244,7 +254,6 @@ fn start_elections(node_state: &'static RaftState, state_arc: &Arc<ElectionState
     });
 }
 
-//do not start until node state is initialized!
 pub fn election_loop(state_arc: &Arc<ElectionState<'static>>) {
     let election_state = Arc::clone(state_arc);
     loop {
@@ -331,12 +340,13 @@ fn replicate_log(election_state: Arc<ElectionState<'static>>) {
                 if time_since_replication > min_replication_interval {
                     for other_node in election_state.node_state.other_nodes() {
                         let index = election_state.next_index_of_node(&other_node);
-                        let entries = election_state.node_state.log_from_index(*index);
-                        if entries.len() > 0 || heartbeat_interval < time_since_replication {
+                        let entries = election_state.node_state.log_from_index(index);
+                        let entries_len = entries.len();
+                        if entries_len > 0 || heartbeat_interval < time_since_replication {
                             write_log(format!("Replicating {} to {}", index, other_node).as_str());
                             replicated = true;
                             let commit_index = *election_state.commit_index.read().unwrap();
-                            let &mut message = object! {
+                            let mut message = object! {
                                 type: "append_entries",
                                 term: election_state.current_term(),
                                 leader_id: election_state.node_state.node_id(),
@@ -345,15 +355,15 @@ fn replicate_log(election_state: Arc<ElectionState<'static>>) {
                                 entries: entries,
                                 leader_commit: commit_index
                             };
-                            let response = send_rpc(election_state.node_state, message);
+                            let response = send_rpc(election_state.node_state, &mut message);
                             let response_body = get_body(&response);
                             let response_term = response_body["term"].as_i32().unwrap();
                             election_state.maybe_step_down(response_term);
                             if election_state.current_state() == LEADER && response_term == election_state.current_term() {
                                 election_state.reset_step_down_time();
                                 if response_body["success"].as_bool().unwrap() {
-                                    election_state.set_node_next_index(&other_node, max(index + entries.len(), election_state.next_index_of_node(&other_node)));
-                                    election_state.set_node_match_index(&other_node, max(index + entries.len() - 1, election_state.match_index_of_node(&other_node)));
+                                    election_state.set_node_next_index(&other_node, max(index + entries_len, election_state.next_index_of_node(&other_node)));
+                                    election_state.set_node_match_index(&other_node, max(index + entries_len - 1, election_state.match_index_of_node(&other_node)));
                                 } else {
                                     election_state.set_node_next_index(&other_node, election_state.next_index_of_node(&other_node) - 1);
                                 }

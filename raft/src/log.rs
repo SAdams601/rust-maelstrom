@@ -1,28 +1,59 @@
 use std::io::{stderr, Write};
+use json::{JsonValue, object};
+use std::str::FromStr;
+use crate::log::Op::*;
 
-#[derive(Copy,Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Op {
     CAS,
     Read,
-    Write
+    Write,
 }
 
-#[derive(Copy,Clone, Debug)]
+fn to_str(op: Op) -> &'static str {
+    match op {
+        CAS => "CAS",
+        Read => "Read",
+        Write => "Write"
+    }
+}
+
+impl FromStr for Op {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "CAS" => Ok(CAS),
+            "Read" => Ok(Read),
+            "Write" => Ok(Write),
+            _ => Err(())
+        }
+    }
+}
+
+impl From<Op> for JsonValue {
+    fn from(op: Op) -> Self {
+        JsonValue::from(to_str(op))
+    }
+}
+
+
+#[derive(Copy, Clone, Debug)]
 pub struct Entry {
-    pub term : i32,
-    pub op: Option<Op>
+    pub term: i32,
+    pub op: Option<Op>,
 }
 
 pub struct Log {
     node: String,
-    entries: Vec<Entry>
+    entries: Vec<Entry>,
 }
 
 impl Log {
-    pub fn init(node : String) -> Log {
+    pub fn init(node: String) -> Log {
         Log {
             node,
-            entries: vec![Entry{ term: 0, op: None }]
+            entries: vec![Entry { term: 0, op: None }],
         }
     }
 
@@ -51,4 +82,33 @@ impl Log {
         }
         vec
     }
+
+    pub fn truncate(&mut self, len: usize) {
+        self.entries.truncate(len);
+    }
+}
+
+impl From<Entry> for JsonValue {
+    fn from(entry: Entry) -> Self {
+        object!("op": entry.op, "term": entry.term)
+    }
+}
+
+impl From<&JsonValue> for Entry {
+    fn from(jv: &JsonValue) -> Self {
+        Entry {
+            term: jv["term"].as_i32().unwrap_or(-1),
+            op: jv["op"].as_str().and_then(|s| Op::from_str(s).ok()),
+        }
+    }
+}
+
+
+pub fn parse_entries(jv: &JsonValue) -> Vec<Entry> {
+    let mut v = vec![];
+    for entry_jv in jv.members() {
+        let entry = Entry::from(entry_jv);
+        v.push(entry);
+    }
+    return v;
 }
