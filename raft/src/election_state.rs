@@ -238,6 +238,7 @@ pub fn start(node_state: &'static RaftState) -> Arc<ElectionState> {
     thread::spawn(move || {
         start_elections(node_state, &state_arc);
         step_down_loop(&state_arc);
+        replicate_log(state_arc);
     });
     result
 }
@@ -334,36 +335,42 @@ fn replicate_log(election_state: Arc<ElectionState<'static>>) {
         let min_replication_interval = Duration::from_millis(50);
         let heartbeat_interval = Duration::from_secs(1);
         loop {
+            let mut replicated = false;
             if election_state.current_state() == LEADER {
-                let time_since_replication = last_replication - Instant::now();
-                let mut replicated = false;
+                let time_since_replication = Instant::now() - last_replication;
+
                 if time_since_replication > min_replication_interval {
                     for other_node in election_state.node_state.other_nodes() {
-                        let index = election_state.next_index_of_node(&other_node);
-                        let entries = election_state.node_state.log_from_index(index);
+                        let next_index = election_state.next_index_of_node(&other_node);
+                        let entries = election_state.node_state.log_from_index(next_index);
                         let entries_len = entries.len();
                         if entries_len > 0 || heartbeat_interval < time_since_replication {
-                            write_log(format!("Replicating {} to {}", index, other_node).as_str());
+                            write_log(format!("Replicating {} to {}", next_index, other_node).as_str());
                             replicated = true;
-                            let commit_index = *election_state.commit_index.read().unwrap();
+                            let commit_index = election_state.commit_index();
+
                             let mut message = object! {
                                 type: "append_entries",
                                 term: election_state.current_term(),
                                 leader_id: election_state.node_state.node_id(),
-                                prev_log_index: index - 1,
-                                prev_log_term: election_state.node_state.log_from_index(index - 1),
+                                prev_log_index: next_index - 1,
+                                prev_log_term: election_state.node_state.log_entry(next_index - 1).unwrap().term,
                                 entries: entries,
                                 leader_commit: commit_index
                             };
-                            let response = send_rpc(election_state.node_state, &mut message);
+                            let response = send_rpc(election_state.node_state, &mut message, &other_node);
                             let response_body = get_body(&response);
+                            if response_body["term"].as_i32().is_none() {
+                                write_log(format!("Append entries failed with message: {}", response_body["text"].as_str().unwrap()).as_str());
+                                continue;
+                            }
                             let response_term = response_body["term"].as_i32().unwrap();
                             election_state.maybe_step_down(response_term);
                             if election_state.current_state() == LEADER && response_term == election_state.current_term() {
                                 election_state.reset_step_down_time();
                                 if response_body["success"].as_bool().unwrap() {
-                                    election_state.set_node_next_index(&other_node, max(index + entries_len, election_state.next_index_of_node(&other_node)));
-                                    election_state.set_node_match_index(&other_node, max(index + entries_len - 1, election_state.match_index_of_node(&other_node)));
+                                    election_state.set_node_next_index(&other_node, max(next_index + entries_len, election_state.next_index_of_node(&other_node)));
+                                    election_state.set_node_match_index(&other_node, max(next_index + entries_len - 1, election_state.match_index_of_node(&other_node)));
                                 } else {
                                     election_state.set_node_next_index(&other_node, election_state.next_index_of_node(&other_node) - 1);
                                 }
@@ -371,9 +378,9 @@ fn replicate_log(election_state: Arc<ElectionState<'static>>) {
                         }
                     }
                 }
-                if replicated {
-                    last_replication = Instant::now();
-                }
+            }
+            if replicated {
+                last_replication = Instant::now();
             }
             thread::sleep(min_replication_interval);
         }

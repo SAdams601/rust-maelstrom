@@ -44,6 +44,7 @@ pub struct Entry {
     pub op: Option<Op>,
 }
 
+#[derive(Debug)]
 pub struct Log {
     node: String,
     entries: Vec<Entry>,
@@ -77,7 +78,7 @@ impl Log {
 
     pub fn upto_index(&self, count: usize) -> Vec<Entry> {
         let mut vec = Vec::new();
-        for i in 0..count {
+        for i in (count-1)..self.entries.len() {
             vec.push(*self.entries.get(i).unwrap());
         }
         vec

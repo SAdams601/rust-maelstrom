@@ -21,7 +21,7 @@ impl NodeState {
             other_ids: RwLock::new(Vec::new()),
             msg_id: Mutex::new(RefCell::new(0)),
             callbacks: RwLock::new(HashMap::new()),
-            response_channel: response_channel
+            response_channel
         }
     }
 

@@ -46,7 +46,7 @@ impl LinKvService {
         let map = SerializableMap::init();
         let thunk = Thunk::init(self.state.next_thunk_id(), Some(map), false);
         thunk.save(self);
-        send_rpc(self.state, &mut object! {type: "write", key: "root", value: thunk.id.clone()});
+        send_rpc(self.state, &mut object! {type: "write", key: "root", value: thunk.id.clone()}, "lin-kv");
         let mut root = self.root.lock().unwrap();
         *root = thunk.clone();
         thunk
@@ -55,7 +55,7 @@ impl LinKvService {
     pub fn cas_root(&self, original_id: String, new_id: String) -> Result<(), DefiniteError> {
         let response = send_rpc(self.state,
             &mut object! {type: "cas", key: "root", from: original_id.clone(), to: new_id, create_if_not_exists: true},
-        );
+        "lin-kv");
         if response["body"]["type"].to_string() != "cas_ok" {
             stderr()
                 .write_all(format!("Cas failed to update root at {}\n", original_id).as_bytes());
@@ -88,7 +88,7 @@ impl LinKvService {
         let mut cache = self.cache.lock().unwrap();
         cache.insert(thunk.id.clone(), thunk_json.clone());
         let mut request = object! {type: "write", key: thunk.id.clone(), value: thunk_json};
-        send_rpc(self.state, &mut request)
+        send_rpc(self.state, &mut request, "lin-kv")
     }
 
     pub fn new_id(&self) -> String {

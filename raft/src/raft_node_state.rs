@@ -8,6 +8,7 @@ use std::io::{stderr, Write};
 use crate::election_state::ElectionState;
 use crate::log::{Log, Entry, Op};
 use std::thread;
+use shared_lib::stdio::write_log;
 
 pub struct RaftState {
     node_state: NodeState,
@@ -92,7 +93,10 @@ impl RaftState {
         self.log.read().unwrap().as_ref().unwrap().last()
     }
 
-    pub fn log_from_index(&self, i: usize) -> Vec<Entry> { self.log.read().unwrap().as_ref().and_then(|log| Some(log.upto_index(i))).unwrap_or(vec![]) }
+    pub fn log_from_index(&self, i: usize) -> Vec<Entry> { self.log.read().unwrap().as_ref().and_then(|log| {
+        write_log(format!("log_from_index - count: {} - log: {:?}", i, log).as_str());
+        Some(log.upto_index(i))
+    }).unwrap_or(vec![]) }
 }
 
 impl Deref for RaftState {

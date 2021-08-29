@@ -7,11 +7,11 @@ use std::thread;
 use std::borrow::Borrow;
 use std::thread::JoinHandle;
 
-pub fn send_rpc(state: &NodeState, request_body: &mut JsonValue) -> JsonValue {
+pub fn send_rpc(state: &NodeState, request_body: &mut JsonValue, to: &str) -> JsonValue {
     let msg_id = state.next_msg_id();
     request_body["msg_id"] = JsonValue::from(msg_id);
     let request =
-        object! {dest: "lin-kv", src: state.node_id(), body: request_body.clone()};
+        object! {dest: to, src: state.node_id(), body: request_body.clone()};
     let (sender, receiver) = sync_channel(1);
     state.add_callback(msg_id, sender);
     state.get_channel().send(stringify(request));
@@ -19,7 +19,7 @@ pub fn send_rpc(state: &NodeState, request_body: &mut JsonValue) -> JsonValue {
 }
 
 pub fn retry_rpc(state: &NodeState, request_body: &mut JsonValue) -> JsonValue {
-    while let rpc_response = send_rpc(state, request_body) {
+    while let rpc_response = send_rpc(state, request_body, "lin-kv") {
         if rpc_response["body"]["type"] != "error" {
             return rpc_response["body"].clone();
         }
