@@ -29,6 +29,7 @@ impl MessageHandler<RaftState> for AppendEntriesHandler<'_> {
             write_log("Remote term less than current term returning.");
             return Ok(response);
         }
+        self.election_state.set_leader(body["leader_id"].as_str().unwrap().into());
         self.election_state.reset_election_time();
         let prev_log_index = body["prev_log_index"].as_i32().unwrap() as usize;
         if prev_log_index <= 0 {

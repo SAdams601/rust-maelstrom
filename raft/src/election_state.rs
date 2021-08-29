@@ -32,6 +32,7 @@ pub struct ElectionState<'a> {
     curr_state: RwLock<State>,
     node_state: &'a RaftState,
     voted_for: RwLock<Option<String>>,
+    leader: RwLock<Option<String>>,
     commit_index: RwLock<usize>,
     next_index: RwLock<HashMap<String, usize>>,
     match_index: RwLock<HashMap<String, usize>>
@@ -47,6 +48,7 @@ impl ElectionState<'_> {
             curr_state: RwLock::new(FOLLOWER),
             node_state: state,
             voted_for: RwLock::new(None),
+            leader: RwLock::new(None),
             commit_index: RwLock::new(0),
             next_index: RwLock::new(HashMap::new()),
             match_index: RwLock::new(HashMap::new())
@@ -99,6 +101,7 @@ impl ElectionState<'_> {
         self.reset_election_time();
         self.reset_step_down_time();
         *self.voted_for.write().unwrap() = Some(self.node_state.node_id());
+        *self.leader.write().unwrap() = None;
         write_log(format!("Becoming candidate at term {}\n", (curr_term.clone() + 1)).as_ref());
         self.request_votes()
     }
@@ -109,6 +112,7 @@ impl ElectionState<'_> {
         write_log(format!("Becoming follower at term {}\n", curr_term).as_ref());
         self.reset_election_time();
         self.clear_indices();
+        *self.leader.write().unwrap() = None;
         *curr_state = FOLLOWER;
     }
 
@@ -123,6 +127,7 @@ impl ElectionState<'_> {
         let mut next_idx = self.next_index.write().unwrap();
         let mut match_idx = self.match_index.write().unwrap();
         let current_log_size = self.node_state.log_size();
+        *self.leader.write().unwrap() = None;
         for other_node in self.node_state.other_nodes() {
             next_idx.insert(other_node.clone(), current_log_size + 1);
             match_idx.insert(other_node.clone(), 0);
@@ -154,6 +159,14 @@ impl ElectionState<'_> {
             return true;
         }
         false
+    }
+
+    pub fn set_leader(&self, leader_id: String) {
+        self.leader.write().unwrap().insert(leader_id);
+    }
+
+    pub fn get_leader(&self) -> Option<String> {
+        self.leader.read().unwrap().clone()
     }
 
     pub(crate) fn current_term(&self) -> i32 {
