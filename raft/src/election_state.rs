@@ -227,10 +227,30 @@ impl ElectionState<'_> {
         (*self.curr_state.read().unwrap()).clone()
     }
 
-    fn validate_election(&self, votes: HashSet<String>) {
+    fn validate_election(&self, votes: &HashSet<String>) -> bool {
         let majority = self.node_state.majority();
         if majority <= votes.len() as i32 {
             self.become_leader();
+            return true;
+        }
+        return false;
+    }
+
+    fn median_commit_index(&self) -> usize {
+        let current_match_indices = self.match_index.read().unwrap();
+        let mut values: Vec<&usize> = current_match_indices.values().collect();
+        values.sort();
+        let majority = self.node_state.majority() as usize;
+        *values[(values.len() - majority)]
+    }
+
+    fn advance_commit_index(&self) {
+        if self.current_state() == LEADER {
+            let n = self.median_commit_index();
+            write_log(format!("Median commit index is: {}", n).as_str());
+            if self.commit_index() < n && self.node_state.log_entry(n).unwrap().term == self.current_term() {
+                self.set_commit_index(n);
+            }
         }
     }
 
@@ -336,9 +356,14 @@ fn count_votes(election_state: Arc<ElectionState<'static>>, receivers: Vec<Recei
                     }
                 }
             }
+            let have_won = election_state.validate_election(&votes);
+            if have_won {
+                write_log(format!("Have won election with votes: {:?}", votes).as_str());
+                return;
+            }
         }
         write_log(format!("Have votes: {:?}", votes).as_str());
-        election_state.validate_election(votes);
+        election_state.validate_election(&votes);
     });
 }
 
@@ -372,7 +397,12 @@ fn replicate_log(election_state: Arc<ElectionState<'static>>) {
                                 leader_commit: commit_index
                             };
                             let response = send_rpc(election_state.node_state, &mut message, &other_node);
-                            let response_body = get_body(&response);
+                            if response.is_none() {
+                                write_log("Append log failed with a RPC timeout");
+                                continue;
+                            }
+                            let response_value = response.unwrap();
+                            let response_body = get_body(&response_value);
                             if response_body["term"].as_i32().is_none() {
                                 write_log(format!("Append entries failed with message: {}", response_body["text"].as_str().unwrap()).as_str());
                                 continue;
@@ -384,6 +414,7 @@ fn replicate_log(election_state: Arc<ElectionState<'static>>) {
                                 if response_body["success"].as_bool().unwrap() {
                                     election_state.set_node_next_index(&other_node, max(next_index + entries_len, election_state.next_index_of_node(&other_node)));
                                     election_state.set_node_match_index(&other_node, max(next_index + entries_len - 1, election_state.match_index_of_node(&other_node)));
+                                    election_state.advance_commit_index();
                                 } else {
                                     election_state.set_node_next_index(&other_node, election_state.next_index_of_node(&other_node) - 1);
                                 }

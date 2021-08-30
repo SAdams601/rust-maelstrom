@@ -78,8 +78,10 @@ impl Log {
 
     pub fn upto_index(&self, count: usize) -> Vec<Entry> {
         let mut vec = Vec::new();
-        for i in (count-1)..self.entries.len() {
-            vec.push(*self.entries.get(i).unwrap());
+        if count > 0 {
+            for i in (count - 1)..self.entries.len() {
+                vec.push(*self.entries.get(i).unwrap());
+            }
         }
         vec
     }

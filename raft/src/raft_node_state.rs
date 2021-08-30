@@ -94,7 +94,6 @@ impl RaftState {
     }
 
     pub fn log_from_index(&self, i: usize) -> Vec<Entry> { self.log.read().unwrap().as_ref().and_then(|log| {
-        write_log(format!("log_from_index - count: {} - log: {:?}", i, log).as_str());
         Some(log.upto_index(i))
     }).unwrap_or(vec![]) }
 }
