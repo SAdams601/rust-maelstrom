@@ -27,6 +27,7 @@ impl MessageHandler<RaftState> for RequestVoteHandler<'_> {
         let body = get_body(message);
 
         let vote_term = body["term"].as_i32().unwrap();
+        self.election_state.maybe_step_down(vote_term);
         let current_term = self.election_state.current_term();
 
         let voted_for = self.election_state.voted_for();
@@ -37,7 +38,6 @@ impl MessageHandler<RaftState> for RequestVoteHandler<'_> {
         let vote_log_size = body["last_log_index"].as_usize().unwrap();
         let log_size = curr_state.log_size();
 
-        self.election_state.maybe_step_down(vote_term);
         if vote_term < current_term {
             write_log(format!("Candidate term {} lower than {} not granting vote.", vote_term, current_term).as_str());
         } else if voted_for.is_some() {

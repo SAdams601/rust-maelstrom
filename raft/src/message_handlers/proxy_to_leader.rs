@@ -5,6 +5,7 @@ use json::JsonValue;
 use crate::raft_node_state::RaftState;
 use crate::election_state::State::LEADER;
 use shared_lib::rpc::send_rpc;
+use shared_lib::stdio::write_log;
 
 pub fn proxy_request_to_leader(body: &JsonValue, curr_state: &RaftState, election_state: Arc<ElectionState>) -> Result<JsonValue, MaelstromError> {
     let maybe_leader = election_state.get_leader();
@@ -26,6 +27,10 @@ pub fn proxy_request_to_leader(body: &JsonValue, curr_state: &RaftState, electio
                     error: temporarily_unavailable("not a leader".to_string())
                 })
         },
-        Some(jv) => Ok(jv["body"].clone())
+        Some(jv) => {
+            let body = jv["body"].clone();
+            write_log(format!("Leader response is: {}", body).as_str());
+            Ok(body)
+        }
     }
 }

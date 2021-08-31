@@ -29,7 +29,7 @@ pub fn read_respond_loop<T>(state: &'static T, handlers : &'static HashMap<Strin
                                     thread::spawn(move || handler.handle_message(&parsed, state));
                                 } else {
                                     write_log(&format!(
-                                        "Did not find handler for message: {:?}",
+                                        "Did not find handler for message: {}",
                                         parsed
                                     ));
                                 }

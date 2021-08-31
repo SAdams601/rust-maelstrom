@@ -38,14 +38,14 @@ impl MessageHandler<RaftState> for AppendEntriesHandler<'_> {
             return Err(MaelstromError { in_reply_to: message["id"].as_i32().unwrap(), error: def_error });
         }
         let prev_log_term = body["prev_log_term"].as_i32().unwrap() as usize;
-        let entry = curr_state.log_entry(prev_log_index);
-        if entry.is_none() || entry.unwrap().term as usize != prev_log_term {
-            if entry.is_none() {
-                write_log(format!("No entry found at {}", prev_log_index).as_str());
-            } else {
-                write_log(format!("Entry term of {} did not match prev_log_term of {}", entry.unwrap().term, prev_log_term).as_str());
-            }
-
+        let m_entry = curr_state.log_entry(prev_log_index);
+        if m_entry.is_none() {
+            write_log(format!("No entry found at {}", prev_log_index).as_str());
+            return Ok(response);
+        }
+        let entry = m_entry.unwrap();
+        if entry.term as usize != prev_log_term {
+            write_log(format!("Entry term of {} did not match prev_log_term of {}", entry.term, prev_log_term).as_str());
             return Ok(response);
         }
         curr_state.truncate_log(prev_log_index);
@@ -55,6 +55,7 @@ impl MessageHandler<RaftState> for AppendEntriesHandler<'_> {
         if self.election_state.commit_index() < leader_commit {
             let new_commit_index = min(leader_commit, curr_state.log_size());
             self.election_state.set_commit_index(new_commit_index);
+            self.election_state.advance_state_machine();
         }
         response["success"] = JsonValue::from(true);
         return Ok(response);

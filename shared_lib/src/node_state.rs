@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use json::JsonValue;
 use crate::message_utils::get_in_response_to;
+use crate::stdio::write_log;
 
 pub struct NodeState {
     node_id: RwLock<Option<String>>,
@@ -65,7 +66,13 @@ impl NodeState {
     pub fn check_for_callback(&self, message: &JsonValue) -> Option<SyncSender<JsonValue>> {
         let in_response_to = get_in_response_to(message);
         match in_response_to {
-            Some(id) => self.callbacks.write().unwrap().remove(&id),
+            Some(id) => {
+                let callback = self.callbacks.write().unwrap().remove(&id);
+                if callback.is_none() {
+                    write_log(format!("Ignoring reply to {} with no callback", id).as_str());
+                }
+                callback
+            },
             None => None,
         }
     }

@@ -7,6 +7,14 @@ use std::thread;
 use std::borrow::Borrow;
 use std::thread::JoinHandle;
 
+pub fn send_ff(state: &NodeState, request_body: &mut JsonValue, to: &str) {
+    let msg_id = state.next_msg_id();
+    request_body["msg_id"] = JsonValue::from(msg_id);
+    let request =
+        object! {dest: to, src: state.node_id(), body: request_body.clone()};
+    state.get_channel().send(stringify(request));
+}
+
 pub fn send_rpc(state: &NodeState, request_body: &mut JsonValue, to: &str) -> Option<JsonValue> {
     let msg_id = state.next_msg_id();
     request_body["msg_id"] = JsonValue::from(msg_id);
@@ -14,12 +22,12 @@ pub fn send_rpc(state: &NodeState, request_body: &mut JsonValue, to: &str) -> Op
         object! {dest: to, src: state.node_id(), body: request_body.clone()};
     let (sender, receiver) = sync_channel(1);
     state.add_callback(msg_id, sender);
-    state.get_channel().send(stringify(request));
+    state.get_channel().send(stringify(request.clone()));
     let response = receiver.recv_timeout(Duration::from_millis(5000));
     match response {
         Ok(jv) => Some(jv),
         Err(err) => {
-            write_log("RPC timout error.");
+            write_log(format!("RPC timout error. {}", request).as_str());
             None
         }
     }

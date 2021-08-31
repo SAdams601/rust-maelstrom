@@ -16,6 +16,12 @@ use std::sync::mpsc::{sync_channel, SyncSender, TryIter, TryRecvError, Receiver,
 use shared_lib::stdio::write_log;
 use shared_lib::message_utils::get_body;
 use std::cmp::max;
+use crate::log::Op;
+use crate::message_handlers::cas_handler::check_cas_result;
+use crate::message_handlers::read_handler::check_read_result;
+use shared_lib::error::MaelstromError;
+use shared_lib::message_handler::construct_error_body;
+use shared_lib::rpc::send_ff;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum State {
@@ -30,10 +36,11 @@ pub struct ElectionState<'a> {
     replication_time: RwLock<Instant>,
     term: RwLock<i32>,
     curr_state: RwLock<State>,
-    node_state: &'a RaftState,
+    node_state:  &'a RaftState,
     voted_for: RwLock<Option<String>>,
     leader: RwLock<Option<String>>,
     commit_index: RwLock<usize>,
+    last_applied: RwLock<usize>,
     next_index: RwLock<HashMap<String, usize>>,
     match_index: RwLock<HashMap<String, usize>>
 }
@@ -50,6 +57,7 @@ impl ElectionState<'_> {
             voted_for: RwLock::new(None),
             leader: RwLock::new(None),
             commit_index: RwLock::new(0),
+            last_applied: RwLock::new(1),
             next_index: RwLock::new(HashMap::new()),
             match_index: RwLock::new(HashMap::new())
         }
@@ -111,6 +119,7 @@ impl ElectionState<'_> {
         let curr_term = self.term.read().unwrap();
         write_log(format!("Becoming follower at term {}\n", curr_term).as_ref());
         self.reset_election_time();
+        *self.voted_for.write().unwrap() = None;
         self.clear_indices();
         *self.leader.write().unwrap() = None;
         *curr_state = FOLLOWER;
@@ -223,11 +232,57 @@ impl ElectionState<'_> {
         result
     }
 
+    pub fn advance_state_machine(&self) {
+        let last_applied = *self.last_applied.read().unwrap();
+        let commit_index = *self.commit_index.read().unwrap();
+        for index in (last_applied+1).. (last_applied + commit_index) {
+            let entry = self.node_state.log_entry(index);
+            if entry.is_none() {
+                continue;
+            }
+            let m_op = entry.unwrap().op;
+            if m_op.is_none() {
+                continue;
+            }
+            let op = m_op.unwrap();
+            write_log(format!("Applying op: {:?}", op).as_str());
+            let (to, response) = match op {
+                Op::CAS { key, from,to, requester , msg_id} => {
+                    let cas_result = self.node_state.cas_value(key, from, to);
+                    (requester, check_cas_result(cas_result, msg_id))
+                },
+                Op::Read { key, requester , msg_id} => {
+                    let read_result = self.node_state.read_value(key);
+                    (requester, check_read_result(read_result, msg_id))
+                },
+                Op::Write { key, value,requester, msg_id } => {
+                    self.node_state.write_value(key, value);
+                    (requester, Ok(object!(type: "write_ok", in_reply_to: msg_id)))
+                }
+            };
+            if self.current_state() == LEADER {
+                match response {
+                    Ok(mut jv) => {
+                        write_log(format!("Sending RPC from state machine: {}", jv).as_str());
+                        send_ff(self.node_state, &mut jv, &to);
+                    }
+                    Err(err) => {
+                        let mut error_json = construct_error_body(&err);
+                        send_ff(self.node_state, &mut error_json, &to);
+                    }
+                }
+            }
+        }
+        drop(last_applied);
+        *self.last_applied.write().unwrap() = commit_index;
+    }
+
     pub(crate) fn current_state(&self) -> State {
         (*self.curr_state.read().unwrap()).clone()
     }
 
     fn validate_election(&self, votes: &HashSet<String>) -> bool {
+        write_log(format!("Validating election with votes {:?}", votes).as_str());
         let majority = self.node_state.majority();
         if majority <= votes.len() as i32 {
             self.become_leader();
@@ -252,6 +307,7 @@ impl ElectionState<'_> {
                 self.set_commit_index(n);
             }
         }
+        self.advance_state_machine();
     }
 
     fn step_down_time(&self) -> Instant {
@@ -264,7 +320,7 @@ impl ElectionState<'_> {
 }
 
 
-pub fn start(node_state: &'static RaftState) -> Arc<ElectionState> {
+pub fn start(node_state: &'static RaftState) -> Arc<ElectionState<'static>> {
     let state = ElectionState::init(node_state);
     let state_arc = Arc::new(state);
     let result = Arc::clone(&state_arc);
@@ -299,7 +355,6 @@ pub fn election_loop(state_arc: &Arc<ElectionState<'static>>) {
             let vote_channels = election_state.become_candidate();
             count_votes(Arc::clone(state_arc), vote_channels);
         }
-        election_state.reset_election_time();
     }
 }
 
@@ -356,10 +411,8 @@ fn count_votes(election_state: Arc<ElectionState<'static>>, receivers: Vec<Recei
                     }
                 }
             }
-            let have_won = election_state.validate_election(&votes);
-            if have_won {
-                write_log(format!("Have won election with votes: {:?}", votes).as_str());
-                return;
+            if votes.len() >= election_state.node_state.majority() as usize {
+                break;
             }
         }
         write_log(format!("Have votes: {:?}", votes).as_str());
@@ -392,33 +445,40 @@ fn replicate_log(election_state: Arc<ElectionState<'static>>) {
                                 term: election_state.current_term(),
                                 leader_id: election_state.node_state.node_id(),
                                 prev_log_index: next_index - 1,
-                                prev_log_term: election_state.node_state.log_entry(next_index - 1).unwrap().term,
+                                prev_log_term: election_state.node_state.log_entry(next_index - 1).map_or_else(|| 1, |entry| entry.term),
                                 entries: entries,
                                 leader_commit: commit_index
                             };
-                            let response = send_rpc(election_state.node_state, &mut message, &other_node);
-                            if response.is_none() {
-                                write_log("Append log failed with a RPC timeout");
-                                continue;
-                            }
-                            let response_value = response.unwrap();
-                            let response_body = get_body(&response_value);
-                            if response_body["term"].as_i32().is_none() {
-                                write_log(format!("Append entries failed with message: {}", response_body["text"].as_str().unwrap()).as_str());
-                                continue;
-                            }
-                            let response_term = response_body["term"].as_i32().unwrap();
-                            election_state.maybe_step_down(response_term);
-                            if election_state.current_state() == LEADER && response_term == election_state.current_term() {
-                                election_state.reset_step_down_time();
-                                if response_body["success"].as_bool().unwrap() {
-                                    election_state.set_node_next_index(&other_node, max(next_index + entries_len, election_state.next_index_of_node(&other_node)));
-                                    election_state.set_node_match_index(&other_node, max(next_index + entries_len - 1, election_state.match_index_of_node(&other_node)));
-                                    election_state.advance_commit_index();
-                                } else {
-                                    election_state.set_node_next_index(&other_node, election_state.next_index_of_node(&other_node) - 1);
+                            let new_arc = election_state.clone();
+                            thread::spawn(move || {
+                                let thread_state = new_arc;
+                                let response = send_rpc(thread_state.node_state, &mut message, &other_node);
+                                if response.is_none() {
+                                    write_log("Append log failed with a RPC timeout");
+                                    return;
                                 }
-                            }
+                                let response_value = response.unwrap();
+                                let response_body = get_body(&response_value);
+                                if response_body["term"].as_i32().is_none() {
+                                    write_log(format!("Append entries failed with message: {}", response_body["text"].as_str().unwrap()).as_str());
+                                    return;
+                                }
+                                let response_term = response_body["term"].as_i32().unwrap();
+                                thread_state.maybe_step_down(response_term);
+                                if thread_state.current_state() == LEADER && response_term == thread_state.current_term() {
+                                    thread_state.reset_step_down_time();
+                                    if response_body["success"].as_bool().unwrap() {
+                                        let new_next_index = max(next_index + entries_len, thread_state.next_index_of_node(&other_node));
+                                        thread_state.set_node_next_index(&other_node, new_next_index);
+                                        let new_match_index = max(next_index + entries_len - 1, thread_state.match_index_of_node(&other_node));
+                                        thread_state.set_node_match_index(&other_node, new_match_index);
+                                        write_log(format!("Node: {} next index: {} match index: {}", other_node, new_next_index, new_match_index).as_str());
+                                        thread_state.advance_commit_index();
+                                    } else {
+                                        thread_state.set_node_next_index(&other_node, thread_state.next_index_of_node(&other_node) - 1);
+                                    }
+                                }
+                            });
                         }
                     }
                 }

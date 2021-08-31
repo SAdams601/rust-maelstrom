@@ -17,9 +17,10 @@ pub struct RaftState {
 }
 
 impl RaftState {
-    pub fn init(response_channel: SyncSender<String>) -> RaftState {
+    pub fn init<'a>(response_channel: SyncSender<String>) -> RaftState {
         RaftState {
-            node_state: NodeState::init(response_channel),            values: Mutex::new(HashMap::new()),
+            node_state: NodeState::init(response_channel),
+            values: Mutex::new(HashMap::new()),
             log: RwLock::new(None),
         }
     }
@@ -81,7 +82,7 @@ impl RaftState {
 
     pub fn log_entry(&self, i: usize) -> Option<Entry> {
         self.log.read().unwrap().as_ref().and_then(|log| {
-          Some(log.get(i))
+          log.get(i)
         })
     }
 
